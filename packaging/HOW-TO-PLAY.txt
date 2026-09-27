@@ -1,0 +1,95 @@
+z2rs: how to play
+=================
+
+z2rs is a Rust reconstruction of Zelda II: The Adventure of Link for the NES.
+This archive has the game, a launcher and the co-op signalling server. It does
+not include the game ROM. You need your own Zelda II (USA) .nes file.
+
+
+Starting the game
+-----------------
+
+1. Download the archive for your system from
+   https://github.com/troyedwardsjr/z2rs/releases and unpack it.
+2. Start the launcher:
+     Windows  z2rs-launcher.exe
+     macOS    z2rs.app
+     Linux    z2rs-launcher
+3. Pick your ROM and press Play.
+
+The game remembers the last ROM it loaded, so after the first time you can
+also start z2rs (z2rs.exe on Windows) directly and it boots straight in. You
+can drop a ROM file onto the game window at any time.
+
+The launcher also sets the window size, fullscreen, widescreen, an HD
+graphics pack folder, and local or online co-op.
+
+From a terminal:
+
+    ./z2rs --rom /path/to/zelda2.nes --scale 3
+    ./z2rs --fullscreen
+    ./z2rs --help
+
+
+Controls
+--------
+
+    Action     Player 1       Player 2 (local co-op)
+    A          Z              G
+    B          X              F
+    Start      Enter          T
+    Select     Shift          R
+    D-pad      arrow keys     W A S D
+
+    Tab              fast-forward
+    F5               save state
+    F7               load state
+    F6               next save slot
+    1-9, 0           pick a save slot
+    P                pause
+    .                step one frame while paused
+    F11, Alt+Enter   toggle fullscreen
+    Esc              leave fullscreen, or quit when windowed
+
+Gamepads work too. Plug one in before or while the game runs.
+
+
+Settings and saves
+------------------
+
+Settings, save states and battery saves live in:
+
+    macOS    ~/Library/Application Support/z2rs
+    Windows  %APPDATA%\z2rs
+    Linux    ~/.local/share/z2rs  (or $XDG_DATA_HOME/z2rs)
+
+The ROM itself is never copied there.
+
+
+Unsigned builds
+---------------
+
+These builds are not code signed, so your system warns the first time.
+
+macOS: right-click z2rs.app and choose Open. On newer macOS, if there is no
+Open button, try once, then go to System Settings > Privacy & Security and
+click Open Anyway. If macOS says the app is damaged, run this in the unpacked
+folder:
+
+    xattr -dr com.apple.quarantine z2rs.app
+
+Windows: SmartScreen says "Windows protected your PC". Click More info, then
+Run anyway.
+
+Linux: if nothing starts, make the files executable:
+
+    chmod +x z2rs z2rs-launcher z2-signal
+
+
+Problems
+--------
+
+Only the No-Intro Zelda II (USA) dump is accepted. If your ROM is rejected,
+check that it is that dump.
+
+Report bugs at https://github.com/troyedwardsjr/z2rs/issues

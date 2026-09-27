@@ -13,17 +13,28 @@ On top of the original game, z2rs adds a few optional extras:
 
 Release announcement: [Moddable Zelda 2 PC / Web port with Online Multiplayer Co-op and Widescreen Released](https://x.com/troygentic/status/2101572848506573135). Chat is on [Discord](https://discord.gg/buZrPenm6K).
 
-## Download
+## Play it
 
-Builds for Linux, macOS (Intel and Apple Silicon) and Windows are on the [releases page](https://github.com/troyedwardsjr/z2rs/releases). Unpack the archive for your system and run the game with your own ROM:
+1. Download the archive for your system from the [releases page](https://github.com/troyedwardsjr/z2rs/releases). There are builds for Linux, macOS (Intel and Apple Silicon) and Windows. Unpack it.
+2. Start the launcher: `z2rs-launcher.exe` on Windows, `z2rs.app` on macOS, `z2rs-launcher` on Linux.
+3. Pick your Zelda II (USA) ROM and press Play.
+
+The launcher also sets the window size, fullscreen, widescreen, an HD pack folder, and local or online co-op. Online co-op uses a public signalling server by default, so two players only need to agree on a room name.
+
+The game remembers the last ROM it loaded, so after the first run you can start `z2rs` directly and it boots straight into the game. Dragging a ROM onto the game window still works. `HOW-TO-PLAY.txt` in the archive lists the controls and where settings and saves are kept.
+
+Only one dump passes the check, identified by the hash of the ROM body with the 16-byte iNES header stripped: CRC32 `BA322865`, SHA1 `11333adb723a5975e0ecca3aee8f4747aa8d2d26` (No-Intro USA). The file is only ever read in place.
+
+Nothing in the archive is code signed. On macOS, right-click `z2rs.app` and choose Open the first time, or use Open Anyway in System Settings > Privacy & Security on newer versions. Windows SmartScreen wants More info and Run anyway, and on Linux the files may need `chmod +x`.
+
+From a terminal you can skip the launcher:
 
 ```sh
-./z2rs --rom /path/to/zelda2.nes
+./z2rs --rom /path/to/zelda2.nes --scale 3
+./z2rs --fullscreen
 ```
 
-Only one dump passes the check, identified by the hash of the ROM body with the 16-byte iNES header stripped: CRC32 `BA322865`, SHA1 `11333adb723a5975e0ecca3aee8f4747aa8d2d26` (No-Intro USA). The file is only ever read in place. You can also start the app with no ROM and drag one onto the window.
-
-Nothing in the archive is code signed. macOS wants right click and Open the first time, Windows SmartScreen wants More info and Run anyway, and on Linux the file may need `chmod +x`. The second binary in the archive, `z2-signal`, is the signalling server for online co-op, and you only need it if you host a session yourself.
+`z2-signal`, the third binary in the archive, is the signalling server for online co-op. You only need it to host your own instead of using the public one.
 
 ## Build from source
 
@@ -49,13 +60,13 @@ make run-web        # build the wasm bundle and serve it on :8080
 | Select | `Shift` (either one) | `R` |
 | D-pad | arrow keys | `W` `A` `S` `D` |
 
-`Tab` fast-forward, `F5` save state, `F7` load state, `F6` next save slot, `P` pause, `.` single-step while paused, `Esc` quit. Gamepads work too.
+`Tab` fast-forward, `F5` save state, `F7` load state, `F6` next save slot, `P` pause, `.` single-step while paused, `F11` or `Alt+Enter` fullscreen, `Esc` leave fullscreen or quit. Gamepads work too.
 
 ## Guides
 
 | Guide | What is in it |
 |---|---|
-| [guide/desktop.md](guide/desktop.md) | every key, save-state slots, command-line flags, the config file, gamepads |
+| [guide/desktop.md](guide/desktop.md) | the launcher, every key, save-state slots, command-line flags, the config file, gamepads |
 | [guide/browser.md](guide/browser.md) | the web build, its URL parameters, optional features and bundle size |
 | [guide/co-op.md](guide/co-op.md) | two Links locally or online, widescreen, how both work and what they cannot do |
 | [guide/hd-packs.md](guide/hd-packs.md) | making a pack by painting over spritesheets of the game (`make hd-sheets`, `make hd-pack`) and playing with it |

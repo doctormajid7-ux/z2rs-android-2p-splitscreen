@@ -38,14 +38,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # winit, cpal and gilrs link X11, ALSA and udev on Linux.
+      # winit, cpal and gilrs link X11, ALSA and udev on Linux. The launcher
+      # (eframe on OpenGL, rfd for the file picker) adds the GL, X11 input and
+      # GTK packages in LAUNCHER_DEPS. Edit that list if the launcher's
+      # dependencies change.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
+        env:
+          GAME_DEPS: >-
+            pkg-config libasound2-dev libudev-dev libx11-dev
+            libxkbcommon-dev libwayland-dev
+          LAUNCHER_DEPS: >-
+            libgl1-mesa-dev libxcursor-dev libxrandr-dev libxi-dev
+            libgtk-3-dev
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libasound2-dev libudev-dev libx11-dev \
-            libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y --no-install-recommends $GAME_DEPS $LAUNCHER_DEPS
 
       - name: Install the Rust target
         run: rustup target add ${{ matrix.target }}
@@ -55,22 +63,73 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p z2-native -p z2-signal
+        run: cargo build --release --target ${{ matrix.target }} -p z2-native -p z2-launcher -p z2-signal
 
-      # The archive holds the game, the signalling server used for online
-      # co-op, and the documents a first run needs. No ROM, ever.
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      # Every archive holds the game, the launcher, the signalling server used
+      # for online co-op, and the documents a first run needs. No ROM, ever.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           name="z2rs-${GITHUB_REF_NAME#v}-${{ matrix.target }}"
           [ "$GITHUB_REF_TYPE" = tag ] || name="z2rs-${{ matrix.target }}"
+          bin="target/${{ matrix.target }}/release"
           mkdir "$name"
-          cp "target/${{ matrix.target }}/release/z2-native" "$name/z2rs"
-          cp "target/${{ matrix.target }}/release/z2-signal" "$name/z2-signal"
-          cp README.md LICENSE LEGAL.md "$name/"
+          cp "$bin/z2-native" "$name/z2rs"
+          cp "$bin/z2-launcher" "$name/z2rs-launcher"
+          cp "$bin/z2-signal" "$name/z2-signal"
+          chmod +x "$name/z2rs" "$name/z2rs-launcher" "$name/z2-signal"
+          cp README.md LICENSE LEGAL.md packaging/HOW-TO-PLAY.txt "$name/"
           tar czf "$name.tar.gz" "$name"
           echo "ARCHIVE=$name.tar.gz" >> "$GITHUB_ENV"
+
+      # macOS gets a z2rs.app bundle with the launcher as its main executable
+      # and the game and signalling server beside it in Contents/MacOS, where
+      # the launcher looks for them. The bare `z2rs` binary also sits in the
+      # archive root for anyone who runs it from a terminal. The archive is a
+      # zip made by ditto, which keeps the bundle's permissions, symlinks and
+      # extended attributes intact; Finder unpacks it with a double click.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = tag ] || version="0.0.0"
+          name="z2rs-$version-${{ matrix.target }}"
+          [ "$GITHUB_REF_TYPE" = tag ] || name="z2rs-${{ matrix.target }}"
+          bin="target/${{ matrix.target }}/release"
+          app="$name/z2rs.app"
+          mkdir -p "$app/Contents/MacOS"
+          cp "$bin/z2-launcher" "$app/Contents/MacOS/z2rs-launcher"
+          cp "$bin/z2-native" "$app/Contents/MacOS/z2rs"
+          cp "$bin/z2-signal" "$app/Contents/MacOS/z2-signal"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>z2rs-launcher</string>
+            <key>CFBundleIdentifier</key><string>com.z2rs.launcher</string>
+            <key>CFBundleName</key><string>z2rs</string>
+            <key>CFBundleDisplayName</key><string>z2rs</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$app/Contents/Info.plist"
+          # An ad-hoc signature does not satisfy Gatekeeper, but without any
+          # signature Apple Silicon reports a downloaded app as damaged.
+          codesign --force --deep -s - "$app"
+          codesign --verify --deep --strict "$app"
+          cp "$bin/z2-native" "$name/z2rs"
+          cp README.md LICENSE LEGAL.md packaging/HOW-TO-PLAY.txt "$name/"
+          ditto -c -k --keepParent "$name" "$name.zip"
+          echo "ARCHIVE=$name.zip" >> "$GITHUB_ENV"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -78,10 +137,12 @@ jobs:
         run: |
           name="z2rs-${GITHUB_REF_NAME#v}-${{ matrix.target }}"
           [ "$GITHUB_REF_TYPE" = tag ] || name="z2rs-${{ matrix.target }}"
+          bin="target/${{ matrix.target }}/release"
           mkdir "$name"
-          cp "target/${{ matrix.target }}/release/z2-native.exe" "$name/z2rs.exe"
-          cp "target/${{ matrix.target }}/release/z2-signal.exe" "$name/z2-signal.exe"
-          cp README.md LICENSE LEGAL.md "$name/"
+          cp "$bin/z2-native.exe" "$name/z2rs.exe"
+          cp "$bin/z2-launcher.exe" "$name/z2rs-launcher.exe"
+          cp "$bin/z2-signal.exe" "$name/z2-signal.exe"
+          cp README.md LICENSE LEGAL.md packaging/HOW-TO-PLAY.txt "$name/"
           7z a "$name.zip" "$name" > /dev/null
           echo "ARCHIVE=$name.zip" >> "$GITHUB_ENV"
 
@@ -117,18 +178,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'EOF'
-          Desktop builds of z2rs. Download the archive for your system, unpack it,
-          and run `z2rs` with your own Zelda II (USA) ROM:
+          Desktop builds of z2rs. Download the archive for your system and unpack
+          it. Double-click `z2rs-launcher` (`z2rs.app` on macOS), pick your ROM,
+          and press Play. The game remembers the ROM, so later you can also start
+          `z2rs` directly. `HOW-TO-PLAY.txt` in the archive lists the controls and
+          where settings and saves are kept.
 
-              ./z2rs --rom /path/to/zelda2.nes
+          No ROM is included and none is uploaded anywhere. You need your own
+          Zelda II (USA) `.nes` file.
 
-          No ROM is included and none is uploaded anywhere. `z2-signal` in the
-          same archive is the signalling server for online co-op, and you only
-          need it if you host a session yourself.
+          From a terminal, run the game directly:
 
-          These builds are not code signed. macOS needs right click and Open the
-          first time, Windows SmartScreen needs More info and Run anyway, and on
-          Linux the file may need `chmod +x`.
+              ./z2rs --rom /path/to/zelda2.nes [--scale 3] [--fullscreen]
+
+          `./z2rs --help` lists every flag. `z2-signal` is the signalling server
+          for online co-op, and you only need it if you host your own instead of
+          using the public one the launcher points at.
+
+          These builds are not code signed, so each system warns the first time:
+
+          - macOS: right-click `z2rs.app` and choose Open. On newer macOS, if
+            that does not offer Open, try once, then go to System Settings >
+            Privacy & Security and click Open Anyway. If macOS still refuses, run
+            `xattr -dr com.apple.quarantine z2rs.app` in the unpacked folder.
+          - Windows: SmartScreen shows "Windows protected your PC". Click More
+            info, then Run anyway.
+          - Linux: if the files do not start, run
+            `chmod +x z2rs z2rs-launcher z2-signal`.
 
           `SHA256SUMS` lists the checksum of every archive.
           EOF

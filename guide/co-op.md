@@ -2,11 +2,19 @@
 
 z2rs can run two Links, locally or over the internet, and it can paint extra scenery beside the NES picture. Both are off unless you ask for them, and neither touches the verification path. The game only sees a second controller when you turn co-op on.
 
+The launcher in the release archive (`z2rs-launcher`, or `z2rs.app` on macOS) can start either kind of co-op. Choose local co-op, or choose host or join and type a room name. Online sessions use the public signalling server at `wss://signal.z2rs.com` unless you enter another one, so the two players only need to agree on the room name. That server only introduces the two peers. The game traffic goes directly between them.
+
+From a terminal, the same thing looks like this:
+
 ```sh
 # two players, one machine, 16:9
 cargo run --release -p z2-native -- --rom "$Z2_ROM" --coop-local --widescreen 16:9
 
-# online: one signalling server, one host, one guest
+# online through the public signalling server
+./z2rs --coop-host myroom --signal wss://signal.z2rs.com
+./z2rs --coop-join myroom --signal wss://signal.z2rs.com
+
+# online with your own signalling server on machine S
 cargo run --release -p z2-signal                                     # machine S
 cargo run --release -p z2-native -- --rom "$Z2_ROM" --coop-host myroom --signal ws://S:3536
 cargo run --release -p z2-native -- --rom "$Z2_ROM" --coop-join myroom --signal ws://S:3536
@@ -70,5 +78,6 @@ Online play:
 - There is no late join. Both peers restart from power-on with the host's save.
 - Pause, fast-forward, save states and movies are disabled during a session, and a hash mismatch ends it.
 - The guest autosaves to `sram-coop.sav` and never over its own `sram.sav`.
-- The signalling server has no TLS and no authentication. Put it behind a reverse proxy for `wss://` (browsers on an https page require it) and use a room name nobody can guess, because anyone who knows the name can take the free slot.
+- `z2-signal` has no TLS and no authentication. The public server at `signal.z2rs.com` runs behind a TLS proxy. If you host your own, put it behind a reverse proxy for `wss://` (browsers on an https page require it).
+- On any server, use a room name nobody can guess, because anyone who knows the name can take the free slot.
 - WebRTC reveals each peer's public IP address to the other peer and to the STUN server. Symmetric NATs need a TURN server (`netplay.ice_*` in the config).
