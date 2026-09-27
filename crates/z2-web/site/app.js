@@ -27,6 +27,22 @@ const statusEl = $('status');
 const screen = $('screen');
 const ctx = screen.getContext('2d');
 
+// --- scene art ----------------------------------------------------------------
+// The page's stylesheet is inlined into documents served from different paths
+// (the vanilla site at its root, the deployment at /), so it cannot name the
+// art with a relative url(). Resolve it against this module, like the worklet,
+// and hand it over as custom properties on #room plus the <img data-art> icons.
+const room = $('room');
+{
+  const art = (f) => new URL(`./assets/${f}`, import.meta.url).href;
+  if (room) {
+    room.style.setProperty('--art-hero', `url("${art('hero.webp')}")`);
+    room.style.setProperty('--art-desk', `url("${art('desk.webp')}")`);
+    room.style.setProperty('--art-bg', `url("${art('room-blur.webp')}")`);
+  }
+  for (const img of document.querySelectorAll('img[data-art]')) img.src = art(img.dataset.art);
+}
+
 // The framebuffer is runtime-sized: widescreen widens it and an HD pack or a
 // scale above 1 multiplies it, so W/H/img are re-derived from the emulator
 // instead of being module constants. NEVER assume 256x240 anywhere.
@@ -35,6 +51,8 @@ let H = 240;
 let img = ctx.createImageData(W, H);
 let zoom = 2;              // integer NES-pixel zoom used for the CSS width
 const ZOOM_MIN = 1, ZOOM_MAX = 4;
+// z2-signal on the DigitalOcean droplet behind Caddy (README.md).
+const PUBLIC_SIGNAL_URL = 'wss://signal.z2rs.com';
 
 // Re-read the emulator's frame size and resize the canvas to match. Safe to
 // call every frame; it only touches the DOM when something actually changed.
@@ -72,22 +90,19 @@ function setZoom(z) {
 // A page may carry <script id="z2-config" type="application/json">…</script>
 // (a hosting page may render one; the vanilla index.html has none):
 //   { wasm:  { js, wasm },          // URLs of the glue module and the binary
-//     rom:   { url, keyRequired },  // the host serves the ROM from `url`
 //     notes: [ … ] }                // lines to append to Status at boot
-// Everything is optional. With no element the page behaves as it always has:
-// ./pkg/z2_web.js next to this file, and the ROM only by drop.
+// Everything is optional. With no element the page loads ./pkg/z2_web.js next
+// to this file. The ROM always comes from the player's own drop: no host
+// serves one.
 const CONFIG = readConfig();
 function readConfig() {
-  const cfg = { wasm: null, rom: null, notes: [] };
+  const cfg = { wasm: null, notes: [] };
   const el = document.getElementById('z2-config');
   if (!el) return cfg;
   try {
     const raw = JSON.parse(el.textContent || '{}');
     if (raw.wasm && typeof raw.wasm.js === 'string') {
       cfg.wasm = { js: raw.wasm.js, wasm: typeof raw.wasm.wasm === 'string' ? raw.wasm.wasm : null };
-    }
-    if (raw.rom && typeof raw.rom.url === 'string') {
-      cfg.rom = { url: raw.rom.url, keyRequired: !!raw.rom.keyRequired };
     }
     if (Array.isArray(raw.notes)) cfg.notes = raw.notes.filter((n) => typeof n === 'string');
   } catch (e) {
@@ -138,14 +153,6 @@ function audioStatus() {
 // one; otherwise the glue resolves z2_web_bg.wasm beside itself.
 async function boot() {
   const jsUrl = CONFIG.wasm ? CONFIG.wasm.js : './pkg/z2_web.js';
-  if (hostRomWanted()) {
-    // The host serves the ROM, so the page says nothing about ROMs at all: the
-    // "drop your own dump" intro goes, and the drop box only shows progress. It
-    // comes back, with its prompt, if the host's ROM cannot be had.
-    $('romIntro').hidden = true;
-    showDropPrompt(false);
-    romSay('loading the game…');
-  }
   try {
     const pkg = await import(jsUrl);
     if (typeof pkg.default !== 'function') {
@@ -158,7 +165,6 @@ async function boot() {
       ? `wasm release failed to load (${jsUrl}).\n${e}`
       : `wasm bundle missing (./pkg/z2_web.js). Build it first — see site/README "Build".\n${e}`;
     if (CONFIG.notes.length) statusEl.textContent += `\n${CONFIG.notes.join('\n')}`;
-    if (hostRomWanted()) romSay('the game engine failed to load — see Status below.', 'err');
     return;
   }
   emu = new WebEmu();
@@ -171,10 +177,8 @@ async function boot() {
   if (!emu.net_supported()) $('netBox').classList.add('unsupported');
   syncNetButtons();
   syncHdPanel();
-  statusEl.textContent += `\nz2-web ${emu.version()} ready — ` +
-    (hostRomWanted() ? 'starting the game.' : 'drop a Zelda II (USA) .nes file.');
+  statusEl.textContent += `\nz2-web ${emu.version()} ready — drop a Zelda II (USA) .nes file.`;
   if (CONFIG.notes.length) statusEl.textContent += `\n${CONFIG.notes.join('\n')}`;
-  if (hostRomWanted()) await loadRomFromHost();
 }
 
 // `?widescreen=16:9` (or `?wide=`) and `?coop=1` so a QA run or a bookmark can
@@ -235,6 +239,9 @@ function applyUrlParams() {
   // `?zoom=3` changes the on-screen size only (CSS pixels per NES pixel).
   const z = q.get('zoom');
   if (z) setZoom(Number(z));
+  // An https page cannot reach a plain ws:// server, so the hosted site defaults
+  // to the public signal server; local http runs keep ws://localhost:3536.
+  if (location.protocol === 'https:') $('netSignal').value = PUBLIC_SIGNAL_URL;
   // Netplay panel prefill: `?net=lockstep` (default rollback), `?signal=`,
   // `?room=`, `?ice=` (e.g. `none`), `?delay=`. Nothing connects by itself.
   const net = q.get('net');
@@ -856,122 +863,26 @@ function loadRomBytes(buf) {
   syncNetButtons();
   setPaused(false);
   setStatus();
+  $('drop').classList.add('has-rom'); // hides the "insert cartridge" screen
   // On a phone the picture is the page: bring it under the thumbs' controller.
   if (!touchPad.hidden) screen.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 async function loadRomFile(file) {
   loadRomBytes(new Uint8Array(await file.arrayBuffer()));
-  if (CONFIG.rom && emu.rom_loaded()) romSay('playing the dropped ROM.');
 }
 
+// The TV screen (#drop) and anything marked data-rom-drop take a dropped ROM.
 const drop = $('drop');
-drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', (e) => {
-  e.preventDefault(); drop.classList.remove('over');
-  if (e.dataTransfer.files.length) loadRomFile(e.dataTransfer.files[0]);
-});
+for (const el of [drop, ...document.querySelectorAll('[data-rom-drop]')]) {
+  el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('over'); });
+  el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove('over'); });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault(); el.classList.remove('over');
+    if (e.dataTransfer.files.length) loadRomFile(e.dataTransfer.files[0]);
+  });
+}
 $('romFile').addEventListener('change', (e) => { if (e.target.files.length) loadRomFile(e.target.files[0]); });
-
-// --- ROM from the host ------------------------------------------------------
-// With CONFIG.rom the host serves the ROM itself (from private storage, or a
-// local Z2_ROM file in development), so the page starts without a
-// drop and without saying anything about it: once the game is running the
-// drop box is hidden. `?rom=drop` skips the download and plays a dropped dump
-// instead. A 401 means the host wants an access key (Z2_ROM_ACCESS_KEY): the
-// key box asks once and keeps the key in localStorage for this origin. The
-// ROM bytes never touch storage; only the key does.
-const ROM_KEY_STORAGE = 'z2rs-rom-key';
-let romKeyMem = ''; // the key for this page load when localStorage is unavailable
-
-function hostRomWanted() {
-  if (!CONFIG.rom) return false;
-  const p = new URLSearchParams(location.search).get('rom');
-  return !(p === '0' || p === 'drop' || p === 'none');
-}
-
-function romSay(text, cls = '') {
-  const el = $('romAuto');
-  if (!el) return;
-  el.hidden = !text;
-  el.className = `sub ${cls}`.trim();
-  el.textContent = text;
-}
-
-// The "Drop .nes ROM here, or [Choose File]" prompt inside the drop box, and
-// the box itself.
-function showDropPrompt(on) {
-  const el = $('dropPrompt');
-  if (el) el.hidden = !on;
-}
-function showDropBox(on) {
-  $('drop').hidden = !on;
-}
-
-function romKey() {
-  if (romKeyMem) return romKeyMem;
-  try { return localStorage.getItem(ROM_KEY_STORAGE) || ''; } catch { return ''; }
-}
-
-function showKeyBox(why) {
-  romSay(why, 'warn');
-  showDropBox(true);
-  showDropPrompt(true);
-  $('romKeyBox').hidden = false;
-  $('romKey').focus();
-}
-
-async function loadRomFromHost() {
-  $('romKeyBox').hidden = true;
-  showDropBox(true);
-  romSay('loading the game…');
-  let res;
-  try {
-    const headers = {};
-    const key = romKey();
-    if (key) headers['x-z2-rom-key'] = key;
-    res = await fetch(CONFIG.rom.url, { headers });
-  } catch (e) {
-    showDropPrompt(true);
-    romSay(`ROM download failed (${e}) — drop a .nes instead.`, 'err');
-    return;
-  }
-  if (res.status === 401 || res.status === 403) {
-    showKeyBox(res.status === 403 && romKey()
-      ? 'that access key was refused — enter the current one (or drop your own .nes).'
-      : 'this deployment needs an access key to load its ROM (or drop your own .nes).');
-    return;
-  }
-  if (!res.ok) {
-    let why = `HTTP ${res.status}`;
-    try { why = (await res.text()).trim() || why; } catch { /* keep the status code */ }
-    showDropPrompt(true);
-    romSay(`no ROM from this deployment (${why}) — drop a .nes instead.`, 'err');
-    return;
-  }
-  loadRomBytes(new Uint8Array(await res.arrayBuffer()));
-  if (emu.rom_loaded()) {
-    // Running: nothing to announce, the player can see it.
-    romSay('');
-    showDropBox(false);
-  } else {
-    showDropPrompt(true);
-    romSay("the deployment's ROM was rejected (see Status) — drop a .nes instead.", 'err');
-  }
-}
-
-$('romKeyBtn').addEventListener('click', () => {
-  const key = $('romKey').value.trim();
-  romKeyMem = key;
-  try {
-    if (key) localStorage.setItem(ROM_KEY_STORAGE, key);
-    else localStorage.removeItem(ROM_KEY_STORAGE);
-  } catch { /* private browsing: romKeyMem carries the key for this load */ }
-  $('romKey').value = '';
-  loadRomFromHost();
-});
-$('romKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('romKeyBtn').click(); });
 
 // --- movie ------------------------------------------------------------------
 $('movieFile').addEventListener('change', async (e) => {
@@ -1122,6 +1033,63 @@ $('rclipChk').addEventListener('change', () => {
 
 $('zoomIn').addEventListener('click', () => setZoom(zoom + 1));
 $('zoomOut').addEventListener('click', () => setZoom(zoom - 1));
+
+// --- fullscreen -----------------------------------------------------------------
+// The whole document goes fullscreen, so the touch controller (fixed to the
+// viewport) stays usable, and `#room.fs` pins the screen over the page. Where
+// the Fullscreen API is missing (iPhone Safari) or refused, the class alone
+// still fills the browser tab.
+function fullscreenOn() { return room.classList.contains('fs'); }
+async function setFullscreen(on) {
+  room.classList.toggle('fs', on);
+  $('fsBtn').textContent = on ? 'Exit fullscreen' : 'Fullscreen';
+  const doc = document.documentElement;
+  try {
+    if (on && !document.fullscreenElement && doc.requestFullscreen) await doc.requestFullscreen({ navigationUI: 'hide' });
+    if (!on && document.fullscreenElement) await document.exitFullscreen();
+  } catch {
+    // Refused (no user gesture, iframe policy): the pinned screen is enough.
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && fullscreenOn()) setFullscreen(false);
+});
+$('fsBtn').addEventListener('click', () => setFullscreen(!fullscreenOn()));
+$('fsExit').addEventListener('click', () => setFullscreen(false));
+screen.addEventListener('dblclick', () => setFullscreen(!fullscreenOn()));
+// F11 matches the desktop app. Esc is handled by the browser in real
+// fullscreen; this covers the pinned-screen fallback.
+addEventListener('keydown', (e) => {
+  if (e.key === 'F11') { e.preventDefault(); setFullscreen(!fullscreenOn()); }
+  else if (e.key === 'Escape' && fullscreenOn() && !document.fullscreenElement) setFullscreen(false);
+});
+
+// --- the TV cabinet ----------------------------------------------------------------
+// The painted buttons under the screen: MENU pauses, VOL enables audio, CH-/CH+
+// step through the screen shapes, the knob is fullscreen. Each forwards to the
+// real control in the deck, so disabled-until-a-ROM rules still apply.
+for (const b of document.querySelectorAll('.tv-btn[data-click]')) {
+  b.addEventListener('click', () => { const t = $(b.dataset.click); if (t && !t.disabled) t.click(); });
+}
+for (const b of document.querySelectorAll('.tv-btn[data-channel]')) {
+  b.addEventListener('click', () => {
+    const sel = $('wideSel');
+    const n = sel.options.length;
+    sel.selectedIndex = (sel.selectedIndex + Number(b.dataset.channel) + n) % n;
+    sel.dispatchEvent(new Event('change'));
+  });
+}
+// Scanlines over the picture; the choice is remembered per browser.
+{
+  const chk = $('crtChk');
+  try { const v = localStorage.getItem('z2rs.crt'); if (v !== null) chk.checked = v === '1'; } catch { /* no storage */ }
+  const apply = () => room.classList.toggle('crt', chk.checked);
+  apply();
+  chk.addEventListener('change', () => {
+    apply();
+    try { localStorage.setItem('z2rs.crt', chk.checked ? '1' : '0'); } catch { /* no storage */ }
+  });
+}
 
 // --- HD graphics packs --------------------------------------------------------
 // One code path for a human and for QA: raw (name, bytes) pairs go into wasm,

@@ -61,7 +61,7 @@ pub const DEMON_SLOTS: usize = 8;
 /// Most margin sprites one frame can hold (two 8x16 halves per blob).
 pub const MAX_MARGIN_SPRITES: usize = 2 * DEMON_SLOTS;
 /// Widest supported margin in tiles per side (the widescreen maximum).
-pub const MAX_MARGIN_TILES: u8 = 16;
+pub const MAX_MARGIN_TILES: u8 = z2_ppu::MAX_MARGIN_TILES as u8;
 /// Frames per blob life-timer tick (`$050E,x`, NMI sweep every 21 frames).
 pub const LIFE_TICK_FRAMES: u16 = 21;
 

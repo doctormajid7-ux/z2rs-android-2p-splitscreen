@@ -431,6 +431,75 @@ pub fn initial_window_size(tex_w: u32, tex_h: u32, monitor: Option<(u32, u32)>) 
     (f64::from(tex_w * scale), f64::from(tex_h * scale))
 }
 
+/// Initial window size in logical pixels for an explicit `--scale` /
+/// `window_scale` multiplier.
+///
+/// `base_w x base_h` is the frame before any HD output scale (256x240, or the
+/// widescreen width x 240) and `tex_w x tex_h` the texture actually presented.
+/// The window is `base * scale`, stepped down while it does not fit
+/// `monitor` (logical size; titlebar/dock room kept as in
+/// [`initial_window_size`]), but never smaller than the texture: `pixels`
+/// crops a texture larger than its surface instead of shrinking it.
+#[must_use]
+pub fn window_size_for_scale(
+    base: (u32, u32),
+    tex: (u32, u32),
+    scale: u32,
+    monitor: Option<(u32, u32)>,
+) -> (f64, f64) {
+    let (base_w, base_h) = (base.0.max(1), base.1.max(1));
+    let mut s = scale.clamp(1, crate::config::MAX_WINDOW_SCALE);
+    if let Some((mw, mh)) = monitor {
+        while s > 1 && (base_w * s > mw || (base_h * s).saturating_add(120) > mh) {
+            s -= 1;
+        }
+    }
+    (
+        f64::from((base_w * s).max(tex.0)),
+        f64::from((base_h * s).max(tex.1)),
+    )
+}
+
+/// What `Esc` does: leave fullscreen when fullscreen (so a player cannot quit
+/// by accident while reaching for the menu), quit when windowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EscAction {
+    /// Return to a window; the game keeps running.
+    LeaveFullscreen,
+    /// Save SRAM and exit (the old behaviour, windowed only).
+    Quit,
+}
+
+/// [`EscAction`] for the current fullscreen state.
+#[must_use]
+pub fn esc_action(fullscreen: bool) -> EscAction {
+    if fullscreen {
+        EscAction::LeaveFullscreen
+    } else {
+        EscAction::Quit
+    }
+}
+
+/// Whether a key press toggles fullscreen: `F11` (no modifiers needed),
+/// `Alt+Enter`, or `Cmd+Ctrl+F` (the macOS convention; `logo` is Cmd there).
+/// None of these collide with a hotkey; `Enter` and `F` are pad bindings, so
+/// the caller keeps the chord press away from the game.
+#[must_use]
+pub fn is_fullscreen_toggle(
+    code: winit::keyboard::KeyCode,
+    alt: bool,
+    ctrl: bool,
+    logo: bool,
+) -> bool {
+    use winit::keyboard::KeyCode as KC;
+    match code {
+        KC::F11 => true,
+        KC::Enter | KC::NumpadEnter => alt,
+        KC::KeyF => ctrl && logo,
+        _ => false,
+    }
+}
+
 /// Synthetic emulator (no ROM): zeroed `Game` + default APU.
 ///
 /// This is what `--headless --frames 0` smoke and the CI self-tests step —
@@ -695,23 +764,60 @@ pub fn load_movie_track(path: &Path) -> Result<Vec<u8>, String> {
 
 /// First-run ROM resolution: `--rom` > config `rom_path` > `$Z2_ROM`.
 ///
-/// Returns the ROM path or a clear error telling the user exactly what to
-/// do (no file picker — `--rom` only by design, plus winit drag-drop onto
-/// the running window).
+/// Returns the ROM path or a plain-language error telling the user exactly
+/// what to do (no file picker — `--rom`, the launcher, or winit drag-drop onto
+/// the running window). A config `rom_path` that no longer points at a file
+/// is skipped like a stale `$Z2_ROM` (the file was moved or deleted since it
+/// was remembered), and the error then names that path specifically. An
+/// explicit `--rom` is never filtered: a bad path there stays a loud error.
 pub fn resolve_rom_path(cli_rom: Option<&str>, config: &NativeConfig) -> Result<PathBuf, String> {
     if let Some(p) = cli_rom {
         return Ok(PathBuf::from(p));
     }
-    if let Some(p) = &config.rom_path {
-        return Ok(PathBuf::from(p));
+    let stale = match &config.rom_path {
+        Some(p) if Path::new(p).is_file() => return Ok(PathBuf::from(p)),
+        Some(p) if !p.trim().is_empty() => Some(p.as_str()),
+        _ => None,
+    };
+    env_path_if_usable(z2_assets::rom::ROM_ENV_VAR).ok_or_else(|| no_rom_message(stale))
+}
+
+/// The plain-language "no ROM" note printed at startup (the window title,
+/// [`NO_ROM_TITLE`], carries the short form). `stale_config_rom` is a config
+/// `rom_path` that no longer exists, which gets its own first line.
+#[must_use]
+pub fn no_rom_message(stale_config_rom: Option<&str>) -> String {
+    let head = match stale_config_rom {
+        Some(p) => format!(
+            "The Zelda II ROM remembered in {} is no longer at {p} (moved or deleted?).",
+            crate::config::config_path().display()
+        ),
+        None => "No Zelda II ROM found yet.".to_string(),
+    };
+    format!(
+        "{head}\n\
+         To play, do one of these:\n\
+         \x20 - drop your Zelda II (USA) .nes file onto the game window,\n\
+         \x20 - start z2rs from the z2rs launcher and pick the file there, or\n\
+         \x20 - run z2-native --rom PATH/TO/zelda2.nes (or set ${}).\n\
+         z2rs remembers the file for next time. The ROM itself is never copied — \
+         only assets.bin is extracted into the data dir.",
+        z2_assets::rom::ROM_ENV_VAR
+    )
+}
+
+/// Record `rom` (made absolute) as the config's `rom_path`, so the next plain
+/// launch boots straight into the game. Returns whether the value changed —
+/// the caller saves the config only then. Only the path is stored; the ROM
+/// itself is never copied anywhere.
+pub fn remember_rom_path(config: &mut NativeConfig, rom: &Path) -> bool {
+    let abs = std::path::absolute(rom).unwrap_or_else(|_| rom.to_path_buf());
+    let abs = abs.to_string_lossy().into_owned();
+    if config.rom_path.as_deref() == Some(abs.as_str()) {
+        return false;
     }
-    env_path_if_usable(z2_assets::rom::ROM_ENV_VAR).ok_or_else(|| {
-        format!(
-            "no ROM supplied: pass --rom PATH, set rom_path in {}, or set ${} to an existing Zelda II (USA) dump of your own. The ROM is never stored — only assets.bin is extracted into the data dir.",
-            crate::config::config_path().display(),
-            z2_assets::rom::ROM_ENV_VAR
-        )
-    })
+    config.rom_path = Some(abs);
+    true
 }
 
 /// Read a path from an environment variable, treating unset, empty, and
@@ -1449,7 +1555,7 @@ pub struct NativeArgs {
     pub movie: Option<String>,
     /// `--config PATH` override.
     pub config: Option<String>,
-    /// `--widescreen off|16:10|16:9|N` (overrides the config key).
+    /// `--widescreen off|16:10|16:9|21:9|N` (overrides the config key).
     pub widescreen: Option<String>,
     /// `--coop-local` / `--coop-host ROOM` / `--coop-join ROOM`.
     pub coop: CoopMode,
@@ -1483,22 +1589,29 @@ pub struct NativeArgs {
     /// `--load-state PATH.z2snap`: loaded at startup exactly as `F7` does,
     /// before the first frame (and before `--movie` frame 0).
     pub load_state: Option<String>,
+    /// `--scale N` initial window multiplier 1-8 (overrides `window_scale`).
+    /// Display only.
+    pub scale: Option<u32>,
+    /// `--fullscreen`: start in borderless fullscreen (ORed with the
+    /// `fullscreen` config key). Display only.
+    pub fullscreen: bool,
 }
 
 pub const NATIVE_USAGE: &str = "\
 usage: z2-native [--rom PATH] [--movie M.fm2|.bk2] [--config PATH]
-                 [--widescreen off|16:10|16:9|N]
+                 [--widescreen off|16:10|16:9|21:9|N]
                  [--fill-left-clip on|off] [--fill-right-clip on|off]
                  [--margin-sprites on|off]
                  [--wide-gameplay on|off]
                  [--hd-pack DIR] [--hd-scale N] [--hd-record DIR]
+                 [--scale N] [--fullscreen]
                  [--coop-local] [--coop-host ROOM | --coop-join ROOM]
                  [--signal URL] [--net-mode rollback|lockstep] [--net-delay N]
                  [--ice SPEC] [--p2-pad INDEX] [--p2-follow N] [--headless ...]
   --rom PATH       Zelda II .nes ROM (else config rom_path / $Z2_ROM). Never stored.
   --movie PATH     .fm2/.bk2 demo playback (oracle-free: steps Game, no verify).
   --config PATH    JSON config override (default: <data-dir>/z2-native.json).
-  --widescreen P   widescreen margins: off | 16:10 (8 tiles/side) | 16:9 (11) | N (0-16).
+  --widescreen P   widescreen margins: off | 16:10 (8 tiles/side) | 16:9 (11) | 21:9 (19) | N (0-20).
                    See README.md.
   --fill-left-clip on|off
                    paint the 8 columns the overworld blanks at x0-7 (default on).
@@ -1515,6 +1628,10 @@ usage: z2-native [--rom PATH] [--movie M.fm2|.bk2] [--config PATH]
                    Build one with: cargo xtask hdpack template (see README.md).
   --hd-scale N     output multiplier 1-8 (default 1). A pack whose scale N does
                    not divide is presented at the pack's own scale.
+  --scale N        initial window size: N x the frame (1-8; default: largest of
+                   3x/2x/1x that fits the screen). Config key window_scale.
+  --fullscreen     start in borderless fullscreen (config key fullscreen).
+                   F11 or Alt+Enter (Cmd+Ctrl+F on macOS) toggles it.
   --hd-record DIR  on exit, write a template pack of the tiles this session drew.
                    ROM-derived output: DIR must be outside any git work tree.
   --coop-local     two players on this machine (P2: keys_p2 / second gamepad).
@@ -1538,8 +1655,9 @@ usage: z2-native [--rom PATH] [--movie M.fm2|.bk2] [--config PATH]
   --headless ...   windowless CI surface (see --headless --help).
 keys P1: Z=A X=B Enter=Start RightShift=Select arrows=dpad
 keys P2: G=A F=B T=Start R=Select W/A/S/D=dpad (local co-op only; see keys_p2)
-Tab=fast-forward F5=save F7=load F6/digits=slot (1-9,0; shown in title) P=pause .=step Esc=quit; drop a .nes ROM/movie \
-file onto the window. Save states, movies, pause and fast-forward are disabled \
+Tab=fast-forward F5=save F7=load F6/digits=slot (1-9,0; shown in title) P=pause .=step
+F11/Alt+Enter=fullscreen Esc=leave fullscreen, or quit when windowed; drop a .nes ROM/movie \
+file onto the window (a dropped or --rom ROM is remembered in the config for next time). Save states, movies, pause and fast-forward are disabled \
 during netplay.";
 
 /// Parse an `on|off` flag value.
@@ -1583,7 +1701,7 @@ pub fn parse_native_args(argv: &[String]) -> Result<NativeArgs, String> {
                 let v = native_arg_value(&mut it, "--widescreen")?;
                 if z2_ppu::preset_tiles(&v).is_none() {
                     return Err(format!(
-                        "--widescreen: expected off | 16:10 | 16:9 | a number 0-16, got '{v}'\n{NATIVE_USAGE}"
+                        "--widescreen: expected off | 16:10 | 16:9 | 21:9 | a number 0-20, got '{v}'\n{NATIVE_USAGE}"
                     ));
                 }
                 out.widescreen = Some(v);
@@ -1670,6 +1788,18 @@ pub fn parse_native_args(argv: &[String]) -> Result<NativeArgs, String> {
             "--hd-pack" => out.hd_pack = Some(native_arg_value(&mut it, "--hd-pack")?),
             "--load-state" => out.load_state = Some(native_arg_value(&mut it, "--load-state")?),
             "--hd-record" => out.hd_record = Some(native_arg_value(&mut it, "--hd-record")?),
+            "--scale" => {
+                let raw = native_arg_value(&mut it, "--scale")?;
+                let n: u32 = raw.parse().unwrap_or(0);
+                if n == 0 || n > crate::config::MAX_WINDOW_SCALE {
+                    return Err(format!(
+                        "--scale expects 1-{}, got '{raw}'\n{NATIVE_USAGE}",
+                        crate::config::MAX_WINDOW_SCALE
+                    ));
+                }
+                out.scale = Some(n);
+            }
+            "--fullscreen" => out.fullscreen = true,
             "--hd-scale" => {
                 let raw = native_arg_value(&mut it, "--hd-scale")?;
                 let n: u32 = raw.parse().unwrap_or(0);
@@ -1728,7 +1858,7 @@ pub fn parse_native_args(argv: &[String]) -> Result<NativeArgs, String> {
 /// exit code).
 pub fn run_windowed(args: &NativeArgs) -> Result<(), String> {
     // -- config + data dir -------------------------------------------------
-    let config: NativeConfig = match &args.config {
+    let mut config: NativeConfig = match &args.config {
         Some(p) => NativeConfig::load_from(Path::new(p)),
         None => NativeConfig::load(),
     };
@@ -1769,14 +1899,32 @@ pub fn run_windowed(args: &NativeArgs) -> Result<(), String> {
     let rate = config.effective_audio_rate();
     let (mut emu, has_rom, rom_body) = match resolve_rom_path(args.rom.as_deref(), &config) {
         Ok(rom_path) => match emu_from_rom_file_with(&rom_path, rate, feats) {
-            Ok((e, body)) => (e, true, Some(body)),
+            Ok((e, body)) => {
+                // Remember a `--rom` that loaded, so the next plain launch
+                // (a double-click, no flags) boots straight into the game.
+                // Never with an explicit `--config`: that file is the
+                // caller's, not ours to rewrite.
+                if args.rom.is_some()
+                    && args.config.is_none()
+                    && remember_rom_path(&mut config, &rom_path)
+                {
+                    match config.save() {
+                        Ok(()) => eprintln!(
+                            "remembered ROM location {} for next launch",
+                            rom_path.display()
+                        ),
+                        Err(e) => eprintln!("could not remember the ROM location: {e}"),
+                    }
+                }
+                (e, true, Some(body))
+            }
             Err(err) => {
                 eprintln!("ROM load failed ({err}); showing no-ROM window.");
                 (new_emu_with(rate, feats), false, None)
             }
         },
         Err(note) => {
-            eprintln!("{note}\nShowing no-ROM window.");
+            eprintln!("{note}\nOpening the game window without a ROM.");
             (new_emu_with(rate, feats), false, None)
         }
     };
@@ -1875,7 +2023,7 @@ pub fn resolve_display(
 ) -> Result<DisplaySettings, String> {
     let wide_tiles = match &args.widescreen {
         Some(p) => z2_ppu::preset_tiles(p).ok_or_else(|| {
-            format!("--widescreen: expected off | 16:10 | 16:9 | a number 0-16, got '{p}'")
+            format!("--widescreen: expected off | 16:10 | 16:9 | 21:9 | a number 0-20, got '{p}'")
         })?,
         None => config.widescreen_tiles(),
     };
@@ -2052,6 +2200,16 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
         /// re-check on the next redraw (used after a ROM drop or a netplay
         /// session start rebuilds the emulator).
         tex_size: (u32, u32),
+        /// `--scale` / `window_scale`: explicit initial window multiplier
+        /// (`None` = the automatic 3x/2x/1x fit). Display only.
+        window_scale: Option<u32>,
+        /// `--fullscreen` / `fullscreen`: open borderless fullscreen.
+        start_fullscreen: bool,
+        /// Save a successfully dropped ROM's path into the config (off when
+        /// the config was given explicitly with `--config`).
+        remember_rom: bool,
+        /// Current keyboard modifiers (for the Alt+Enter / Cmd+Ctrl+F chords).
+        modifiers: winit::keyboard::ModifiersState,
         /// Monotonic base for the millisecond clock netplay timers use.
         #[cfg(feature = "netplay")]
         start: Instant,
@@ -2740,6 +2898,24 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
             }
         }
 
+        /// Whether the window is currently fullscreen (any kind).
+        fn is_fullscreen(&self) -> bool {
+            self.window.is_some_and(|w| w.fullscreen().is_some())
+        }
+
+        /// Enter or leave borderless fullscreen. winit answers with a
+        /// `Resized` event, which is what resizes the `pixels` surface.
+        fn set_fullscreen(&self, on: bool) {
+            if let Some(w) = self.window {
+                w.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+            }
+        }
+
+        /// F11 / Alt+Enter / Cmd+Ctrl+F.
+        fn toggle_fullscreen(&self) {
+            self.set_fullscreen(!self.is_fullscreen());
+        }
+
         /// One stderr line explaining that a hotkey is inert during netplay.
         fn refuse_during_netplay(&self, what: &str) {
             eprintln!("{what} is disabled during netplay (both peers must step the same frames)");
@@ -2822,14 +2998,34 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
             // >= 1, so a texture larger than the surface would be CROPPED
             // rather than shrunk.
             let (tex_w, tex_h) = self.display.size();
-            let monitor = event_loop.primary_monitor().map(|m| {
-                let s = m.size();
-                (s.width, s.height)
-            });
-            let (lw, lh) = initial_window_size(tex_w, tex_h, monitor);
+            let primary = event_loop.primary_monitor();
+            let (lw, lh) = match self.window_scale {
+                // Explicit `--scale` / `window_scale`: a multiple of the
+                // frame before any HD output scale, fitted to the monitor's
+                // logical size.
+                Some(n) => {
+                    let hd = self.display.effective_scale().max(1);
+                    let monitor = primary.as_ref().map(|m| {
+                        let s: winit::dpi::LogicalSize<u32> = m.size().to_logical(m.scale_factor());
+                        (s.width, s.height)
+                    });
+                    window_size_for_scale((tex_w / hd, tex_h / hd), (tex_w, tex_h), n, monitor)
+                }
+                None => {
+                    let monitor = primary.as_ref().map(|m| {
+                        let s = m.size();
+                        (s.width, s.height)
+                    });
+                    initial_window_size(tex_w, tex_h, monitor)
+                }
+            };
             let attrs = Window::default_attributes()
                 .with_title(if self.has_rom { "z2rs" } else { NO_ROM_TITLE })
-                .with_inner_size(winit::dpi::LogicalSize::new(lw, lh));
+                .with_inner_size(winit::dpi::LogicalSize::new(lw, lh))
+                .with_fullscreen(
+                    self.start_fullscreen
+                        .then_some(winit::window::Fullscreen::Borderless(None)),
+                );
             let window = match event_loop.create_window(attrs) {
                 Ok(w) => w,
                 Err(e) => {
@@ -2960,6 +3156,19 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
                                     if feats.coop { "on" } else { "off" },
                                     if feats.record { "on" } else { "off" }
                                 );
+                                // Remember it so the next plain launch boots
+                                // straight in (path only; saved only when it
+                                // changed, never over an explicit --config).
+                                if self.remember_rom && remember_rom_path(&mut self.config, &path) {
+                                    match self.config.save() {
+                                        Ok(()) => {
+                                            eprintln!("remembered ROM location for next launch")
+                                        }
+                                        Err(e) => {
+                                            eprintln!("could not remember the ROM location: {e}")
+                                        }
+                                    }
+                                }
                             }
                             Err(e) => eprintln!("ROM drop rejected: {e}"),
                         }
@@ -3005,16 +3214,43 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
                         }
                     }
                 }
+                WindowEvent::ModifiersChanged(mods) => {
+                    self.modifiers = mods.state();
+                }
                 WindowEvent::KeyboardInput { event, .. } => {
                     use winit::keyboard::KeyCode as KC;
                     let pressed = event.state == ElementState::Pressed;
                     let repeat = event.repeat;
                     if let PhysicalKey::Code(code) = event.physical_key {
+                        let m = self.modifiers;
+                        // A fullscreen chord (Alt+Enter, Cmd+Ctrl+F) must not
+                        // also press Start / P2 B in the game; releases always
+                        // pass through so nothing sticks.
+                        let fs_chord = pressed
+                            && is_fullscreen_toggle(
+                                code,
+                                m.alt_key(),
+                                m.control_key(),
+                                m.super_key(),
+                            );
                         if let Some(name) = Self::key_name(code) {
-                            self.keyboard.set(name, pressed);
+                            if !fs_chord {
+                                self.keyboard.set(name, pressed);
+                            }
                         }
-                        if pressed && !repeat {
+                        if fs_chord && !repeat {
+                            self.toggle_fullscreen();
+                        } else if pressed && !repeat {
                             match code {
+                                KC::Escape
+                                    if esc_action(self.is_fullscreen())
+                                        == EscAction::LeaveFullscreen =>
+                                {
+                                    // Leaving fullscreen instead of quitting:
+                                    // a reach for a menu key must not end the
+                                    // session. Esc again (windowed) quits.
+                                    self.set_fullscreen(false);
+                                }
                                 KC::Escape => {
                                     // Announce the quit and give the goodbye
                                     // time to leave, so the peer sees "peer
@@ -3186,6 +3422,9 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
 
     // Read before `config` moves into the handler.
     let config_p2_pad = config.gamepad_p2_index;
+    // Display-only window settings (never part of any netplay identity).
+    let window_scale = config.effective_window_scale();
+    let start_fullscreen = config.fullscreen;
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
@@ -3347,6 +3586,10 @@ fn run_event_loop(run: RunConfig) -> Result<(), String> {
         p2_pad: args.p2_pad.or(config_p2_pad),
         p2_follow: args.p2_follow,
         tex_size: (0, 0),
+        window_scale: args.scale.or(window_scale),
+        start_fullscreen: args.fullscreen || start_fullscreen,
+        remember_rom: args.config.is_none(),
+        modifiers: winit::keyboard::ModifiersState::empty(),
         #[cfg(feature = "netplay")]
         start: Instant::now(),
         #[cfg(feature = "netplay")]
@@ -4223,5 +4466,200 @@ mod tests {
         // Nothing observed yet: that is its own (clearer) error.
         let err = d.write_recorded_pack(&[]).expect_err("nothing drawn");
         assert!(err.contains("nothing was drawn"), "{err}");
+    }
+
+    fn sv(args: &[&str]) -> Vec<String> {
+        std::iter::once("z2-native")
+            .chain(args.iter().copied())
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn scale_flag_parses_and_bounds() {
+        assert_eq!(
+            parse_native_args(&sv(&["--scale", "1"])).unwrap().scale,
+            Some(1)
+        );
+        assert_eq!(
+            parse_native_args(&sv(&["--scale", "8"])).unwrap().scale,
+            Some(8)
+        );
+        assert_eq!(parse_native_args(&sv(&[])).unwrap().scale, None);
+        for bad in ["0", "9", "x", "-1", ""] {
+            let err = parse_native_args(&sv(&["--scale", bad])).expect_err(bad);
+            assert!(err.contains("--scale expects 1-8"), "{bad}: {err}");
+            assert!(err.contains("usage:"), "usage printed for {bad}");
+        }
+        assert!(
+            parse_native_args(&sv(&["--scale"])).is_err(),
+            "missing value"
+        );
+    }
+
+    #[test]
+    fn fullscreen_flag_parses() {
+        assert!(
+            parse_native_args(&sv(&["--fullscreen"]))
+                .unwrap()
+                .fullscreen
+        );
+        assert!(!parse_native_args(&sv(&[])).unwrap().fullscreen);
+        let a = parse_native_args(&sv(&["--fullscreen", "--scale", "2"])).unwrap();
+        assert!(a.fullscreen);
+        assert_eq!(a.scale, Some(2));
+        assert!(NATIVE_USAGE.contains("--scale N"));
+        assert!(NATIVE_USAGE.contains("--fullscreen"));
+        assert!(NATIVE_USAGE.contains("F11"));
+        assert!(NATIVE_USAGE.contains("Alt+Enter"));
+    }
+
+    /// Scale and fullscreen are display-only: they must never reach the
+    /// game features (and so never the netplay trap-set identity).
+    #[test]
+    fn window_settings_never_touch_features() {
+        let config = NativeConfig::default();
+        let plain = resolve_features(&NativeArgs::default(), &config).unwrap();
+        let args = NativeArgs {
+            scale: Some(5),
+            fullscreen: true,
+            ..NativeArgs::default()
+        };
+        let cfg = NativeConfig {
+            window_scale: Some(7),
+            fullscreen: true,
+            ..NativeConfig::default()
+        };
+        assert_eq!(resolve_features(&args, &cfg).unwrap(), plain);
+        assert_eq!(
+            resolve_display(&args, &cfg).unwrap(),
+            resolve_display(&NativeArgs::default(), &config).unwrap()
+        );
+    }
+
+    #[test]
+    fn esc_leaves_fullscreen_and_quits_windowed() {
+        assert_eq!(esc_action(true), EscAction::LeaveFullscreen);
+        assert_eq!(esc_action(false), EscAction::Quit);
+    }
+
+    #[test]
+    fn fullscreen_chords() {
+        use winit::keyboard::KeyCode as KC;
+        assert!(is_fullscreen_toggle(KC::F11, false, false, false));
+        assert!(is_fullscreen_toggle(KC::Enter, true, false, false));
+        assert!(is_fullscreen_toggle(KC::NumpadEnter, true, false, false));
+        assert!(is_fullscreen_toggle(KC::KeyF, false, true, true));
+        // Plain Enter is Start and plain F is P2's B: never a toggle.
+        assert!(!is_fullscreen_toggle(KC::Enter, false, false, false));
+        assert!(!is_fullscreen_toggle(KC::KeyF, false, false, false));
+        assert!(!is_fullscreen_toggle(KC::KeyF, false, true, false));
+        // Existing hotkeys stay theirs.
+        for k in [
+            KC::F5,
+            KC::F6,
+            KC::F7,
+            KC::Tab,
+            KC::KeyP,
+            KC::Period,
+            KC::Escape,
+        ] {
+            assert!(!is_fullscreen_toggle(k, true, true, true), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn window_size_for_scale_multiplies_fits_and_never_crops() {
+        // Plain 256x240 at 3x with no monitor info.
+        assert_eq!(
+            window_size_for_scale((256, 240), (256, 240), 3, None),
+            (768.0, 720.0)
+        );
+        // Widescreen 16:9 (11 tiles/side = 432 wide) at 2x.
+        assert_eq!(
+            window_size_for_scale((432, 240), (432, 240), 2, None),
+            (864.0, 480.0)
+        );
+        // Too big for a 1280x800 screen: steps down to the largest that fits
+        // (240*3 + 120 > 800, so 2x).
+        assert_eq!(
+            window_size_for_scale((256, 240), (256, 240), 8, Some((1280, 800))),
+            (512.0, 480.0)
+        );
+        // Never below 1x, even on a tiny screen.
+        assert_eq!(
+            window_size_for_scale((256, 240), (256, 240), 4, Some((100, 100))),
+            (256.0, 240.0)
+        );
+        // An HD texture larger than base*scale keeps the window at least the
+        // texture size (pixels crops, never shrinks).
+        assert_eq!(
+            window_size_for_scale((256, 240), (1024, 960), 2, None),
+            (1024.0, 960.0)
+        );
+        assert_eq!(
+            window_size_for_scale((256, 240), (512, 480), 6, None),
+            (1536.0, 1440.0)
+        );
+        // Out-of-range scales are clamped, not trusted.
+        assert_eq!(
+            window_size_for_scale((256, 240), (256, 240), 0, None),
+            (256.0, 240.0)
+        );
+        assert_eq!(
+            window_size_for_scale((256, 240), (256, 240), 99, None),
+            (2048.0, 1920.0)
+        );
+    }
+
+    #[test]
+    fn remember_rom_path_stores_absolute_and_reports_change() {
+        let mut c = NativeConfig::default();
+        let abs = std::env::temp_dir().join("z2rs-remember-test.nes");
+        assert!(remember_rom_path(&mut c, &abs), "first time changes");
+        assert_eq!(c.rom_path.as_deref(), Some(abs.to_string_lossy().as_ref()));
+        assert!(!remember_rom_path(&mut c, &abs), "same path: no save");
+        // A relative path is stored absolute.
+        let mut c = NativeConfig::default();
+        assert!(remember_rom_path(&mut c, Path::new("some/rel.nes")));
+        let stored = c.rom_path.expect("stored");
+        assert!(Path::new(&stored).is_absolute(), "{stored}");
+        assert!(stored.ends_with("rel.nes"), "{stored}");
+    }
+
+    #[test]
+    fn no_rom_message_is_plain_and_names_a_stale_path() {
+        let generic = no_rom_message(None);
+        assert!(
+            generic.contains("drop your Zelda II (USA) .nes file"),
+            "{generic}"
+        );
+        assert!(generic.contains("launcher"), "{generic}");
+        assert!(generic.contains("--rom"), "{generic}");
+        assert!(!generic.contains("no longer"), "{generic}");
+        let stale = no_rom_message(Some("/gone/zelda2.nes"));
+        assert!(stale.contains("no longer at /gone/zelda2.nes"), "{stale}");
+        assert!(stale.contains("--rom"), "{stale}");
+    }
+
+    /// A config `rom_path` whose file has gone is skipped (not handed to the
+    /// loader), and the error names it — unless `$Z2_ROM` supplies a ROM.
+    #[test]
+    fn stale_config_rom_path_is_named() {
+        let missing = std::env::temp_dir().join("z2rs-definitely-missing-rom.nes");
+        let config = NativeConfig {
+            rom_path: Some(missing.to_string_lossy().into_owned()),
+            ..NativeConfig::default()
+        };
+        match resolve_rom_path(None, &config) {
+            Err(e) => assert!(e.contains("no longer at"), "{e}"),
+            // Only reachable with a real $Z2_ROM in the environment.
+            Ok(p) => assert_ne!(p, missing, "a missing config path is never returned"),
+        }
+        // An explicit --rom is never filtered.
+        assert_eq!(
+            resolve_rom_path(Some("/nope.nes"), &config).unwrap(),
+            PathBuf::from("/nope.nes")
+        );
     }
 }

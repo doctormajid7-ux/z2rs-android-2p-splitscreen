@@ -76,8 +76,8 @@ fn unknown_flags_still_error_with_usage() {
     for bad in [
         vec!["z2-native", "--nope"],
         vec!["z2-native", "--widescreen"],         // missing value
-        vec!["z2-native", "--widescreen", "21:9"], // unknown preset
-        vec!["z2-native", "--widescreen", "17"],   // out of range
+        vec!["z2-native", "--widescreen", "32:9"], // unknown preset
+        vec!["z2-native", "--widescreen", "21"],   // out of range
         vec!["z2-native", "--net-delay", "99"],    // above MAX_DELAY
         vec!["z2-native", "--net-delay", "abc"],
         vec!["z2-native", "--p2-pad", "left"],

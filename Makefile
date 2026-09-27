@@ -11,7 +11,7 @@
 # (default: the sibling ../z2-corpus checkout, override as needed).
 
 .DEFAULT_GOAL := help
-.PHONY: hd-sheets hd-pack hd-play help build test test-rom verify-smoke extract fuzz-smoke run run-debug run-release run-web run-web-net signal check-net netplay-e2e netplay-e2e-rollback netplay-play netplay-e2e-setup corpus-mint fmt clippy clean
+.PHONY: hd-sheets hd-pack hd-play help build test test-rom verify-smoke extract fuzz-smoke run run-debug run-release run-launcher run-web run-web-net signal check-net netplay-e2e netplay-e2e-rollback netplay-play netplay-e2e-setup corpus-mint fmt clippy clean
 
 # Out-of-tree corpus checkout (movies + minted snapshots live here, never in
 # this repo). Override: `make corpus-mint Z2_CORPUS=/path/to/corpus`.
@@ -57,6 +57,7 @@ help:
 	@echo "  run          native windowed app, optimized build (needs ROM)"
 	@echo "  run-debug    native debug build for interpreter debugging (slow)"
 	@echo "  run-release  alias target for the optimized play build"
+	@echo "  run-launcher settings window that starts the game (builds z2-native too, so Play works)"
 	@echo "  run-web      wasm-pack build + serve crates/z2-web/site on PORT (needs wasm-pack, python3)"
 	@echo "  run-web-net  as run-web but with HD packs + online co-op (--features hd,netplay)"
 	@echo "  signal       run the netplay signalling server on SIGNAL_BIND (default 0.0.0.0:3536)"
@@ -142,6 +143,12 @@ run-release:
 	else \
 		cargo run --release -p z2-native -- --rom "$(ROM)" $(ARGS); \
 	fi
+
+# Settings window that starts the game. Play looks for the game program next
+# to the launcher, so build both into target/release first.
+run-launcher:
+	cargo build --release -p z2-native -p z2-launcher
+	cargo run --release -p z2-launcher
 
 # Netplay signalling server. Rooms are ws://HOST:3536/z2-<room>, two peers each.
 # No TLS: put it behind a reverse proxy for wss:// (browsers on https need it).

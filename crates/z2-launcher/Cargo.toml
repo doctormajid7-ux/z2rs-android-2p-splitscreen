@@ -1,0 +1,28 @@
+[package]
+name = "z2-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "z2rs launcher: a small window to configure and start the game"
+authors = ["troyedwardsjr"]
+license = "MIT"
+
+[lib]
+name = "z2_launcher"
+path = "src/lib.rs"
+
+[[bin]]
+name = "z2-launcher"
+path = "src/main.rs"
+
+[dependencies]
+# glow (OpenGL) backend only: the wgpu backend would add a second wgpu next to
+# the one pixels already brings in for z2-native. `wayland` + `x11` are the
+# Linux window-system backends (both loaded at run time, no -dev packages).
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
+egui = "0.36"
+# Native file / folder pickers. The default features use the XDG desktop
+# portal over D-Bus on Linux (pure Rust, no GTK needed to build; the desktop's
+# xdg-desktop-portal service shows the dialog at run time).
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

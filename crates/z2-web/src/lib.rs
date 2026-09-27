@@ -26,7 +26,7 @@
 //!   [`WebEmu::frame_width`]/[`WebEmu::frame_height`] every frame and uses
 //!   [`WebEmu::logical_width`]/[`WebEmu::output_scale`] for the CSS size.
 //! * Widescreen: [`WebEmu::set_widescreen_preset`] (`"off"`, `"16:10"`,
-//!   `"16:9"`, or tiles per side) arms the PPU render record and composes
+//!   `"16:9"`, `"21:9"`, or tiles per side) arms the PPU render record and composes
 //!   through `Game::compose_wide`. Display only — the 256x240 frame the
 //!   engine computes is untouched, and margins carry scenery, never sprites.
 //! * Co-op: [`WebEmu::coop_enable`] + [`WebEmu::step_frames2`] drive
@@ -819,7 +819,7 @@ impl WebEmu {
         self.wide_tiles
     }
 
-    /// Set the widescreen margin in tiles per side (0 = off, max 16).
+    /// Set the widescreen margin in tiles per side (0 = off, max 20).
     ///
     /// Applies immediately when a ROM is loaded and is re-applied to every
     /// later `load_rom`, so the UI toggle cannot go stale. Display only: the
@@ -1080,10 +1080,10 @@ impl WebEmu {
     }
 
     /// [`WebEmu::set_widescreen`] from a preset name: `"off"`, `"16:10"`,
-    /// `"16:9"`, or a number of tiles.
+    /// `"16:9"`, `"21:9"`, or a number of tiles.
     pub fn set_widescreen_preset(&mut self, name: &str) -> Result<(), String> {
         let tiles = z2_ppu::preset_tiles(name).ok_or_else(|| {
-            format!("unknown widescreen preset '{name}' (off | 16:10 | 16:9 | N)")
+            format!("unknown widescreen preset '{name}' (off | 16:10 | 16:9 | 21:9 | N)")
         })?;
         self.set_widescreen(tiles)
     }
@@ -2669,6 +2669,11 @@ mod tests {
         emu.set_widescreen_preset("16:10").expect("16:10 accepted");
         assert_eq!((emu.frame_width(), emu.widescreen_tiles()), (384, 8));
 
+        emu.set_widescreen_preset("21:9").expect("21:9 accepted");
+        assert_eq!((emu.frame_width(), emu.widescreen_tiles()), (560, 19));
+        emu.render_frame().expect("renders ultrawide");
+        assert_eq!(emu.frame_len(), 560 * 240 * 4);
+
         // Off restores the original geometry exactly, so the QA contract
         // (frame_len == 256*240*4) holds again.
         emu.set_widescreen_preset("off").expect("off accepted");
@@ -2681,13 +2686,13 @@ mod tests {
     fn widescreen_rejects_bad_presets_without_changing_state() {
         let mut emu = booted();
         emu.set_widescreen_preset("16:9").unwrap();
-        for bad in ["21:9", "17", "", "garbage"] {
+        for bad in ["32:9", "21", "", "garbage"] {
             assert!(
                 emu.set_widescreen_preset(bad).is_err(),
                 "must reject '{bad}'"
             );
         }
-        assert!(emu.set_widescreen(17).is_err(), "17 tiles is out of range");
+        assert!(emu.set_widescreen(21).is_err(), "21 tiles is out of range");
         assert_eq!(
             emu.widescreen_tiles(),
             11,

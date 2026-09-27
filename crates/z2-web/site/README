@@ -98,7 +98,7 @@ Keyboard, gamepad and the on-screen controller are OR-ed together every frame (`
 
 ### Widescreen
 
-Use the Screen select (`off`, 16:10 or 16:9), or `?widescreen=16:9` in the URL. `?wide=` also works, and a bare number up to 16 sets the margin in tiles per side. The canvas is resized from `WebEmu::frame_width()` and `frame_height()`. The 256x240 NES frame itself is untouched.
+Use the Screen select (`off`, 16:10, 16:9 or 21:9 ultrawide), or `?widescreen=16:9` in the URL. `?wide=` also works, and a bare number up to 20 sets the margin in tiles per side. The canvas is resized from `WebEmu::frame_width()` and `frame_height()`. The 256x240 NES frame itself is untouched.
 
 Side-view enemies, townspeople and items that are outside the NES picture are drawn in the margins ("objects in margins", `?msprites=0` turns it off). The "enemies in the margins" checkbox (wide gameplay, `?widegame=0` turns it off) makes overworld encounters, side-view enemies and townspeople spawn out past the margins instead of at the original screen edge. It changes the game, so it is part of the netplay identity: both peers must match, and it cannot change during a session. Projectiles still appear at the original edge, and dialogue boxes and the pause pane do not extend into the margins.
 
@@ -165,7 +165,7 @@ The nine members above are the stable contract. Every control added for widescre
 
 | member | shape |
 |---|---|
-| `ext.setWide(preset)` | `"off"` \| `"16:10"` \| `"16:9"` \| `"N"` → tiles per side; resizes the canvas and the Screen select |
+| `ext.setWide(preset)` | `"off"` \| `"16:10"` \| `"16:9"` \| `"21:9"` \| `"N"` → tiles per side; resizes the canvas and the Screen select |
 | `ext.wideTiles()` | → margin tiles per side (0 = off) |
 | `ext.frameSize()` | → `{width, height, logicalWidth, logicalHeight, scale}`; `width == logicalWidth * scale` |
 | `ext.setMarginSprites(on)` | draw side-view objects in the margins; returns the new state |
@@ -209,7 +209,7 @@ In rollback mode `net.status()` adds `mode`, `rttMs`, `rollbacks`, `rollbackFram
 
 | parameter | effect |
 |---|---|
-| `?widescreen=` (or `?wide=`) | `off` \| `16:10` \| `16:9` \| `1` to `16` tiles per side |
+| `?widescreen=` (or `?wide=`) | `off` \| `16:10` \| `16:9` \| `21:9` \| `1` to `20` tiles per side |
 | `?clip=0` | stop painting the window's blanked left 8 columns |
 | `?rclip=0` | stop painting the window's masked right 8 columns |
 | `?msprites=0` | do not draw side-view objects in the margins |

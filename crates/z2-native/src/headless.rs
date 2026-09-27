@@ -63,7 +63,7 @@ pub struct HeadlessArgs {
     /// ROM path. Explicit `--rom` wins; else `$Z2_ROM`; with neither, the
     /// run uses the synthetic no-cartridge `Game`.
     pub rom: Option<String>,
-    /// Widescreen preset (`off` | `16:10` | `16:9` | `N`). Applied before
+    /// Widescreen preset (`off` | `16:10` | `16:9` | `21:9` | `N`). Applied before
     /// stepping, because the margin decoder needs the PPU render record to
     /// have been on during the run.
     pub widescreen: Option<String>,
@@ -157,7 +157,7 @@ usage: z2-native --headless [--snapshot S] [--movie M] [--frames N] [--dump fact
   --dump-frame P  write final framebuffer PNG here (display palette, std-only encoder)
   --dump-at L,P   after each 1-based frame in LIST write PREFIX N .png
                   (`450,472,palace` writes palace450.png + palace472.png)
-  --widescreen P  widescreen margins: off | 16:10 | 16:9 | N tiles per side (0-16)
+  --widescreen P  widescreen margins: off | 16:10 | 16:9 | 21:9 | N tiles per side (0-20)
   --dump-wide P   write the composed widescreen PNG here (needs a ROM for CHR;
                   implies --widescreen 16:9 when that flag is absent)
   --margin-sprites on|off
@@ -233,7 +233,7 @@ pub fn parse_headless_args(argv: &[String]) -> Result<ParseOutcome, String> {
                 let raw = value_of(&mut it, "--widescreen")?;
                 if z2_ppu::preset_tiles(&raw).is_none() {
                     return Err(format!(
-                        "--widescreen expects off | 16:10 | 16:9 | a number 0-16, got '{raw}'\n{HEADLESS_USAGE}"
+                        "--widescreen expects off | 16:10 | 16:9 | 21:9 | a number 0-20, got '{raw}'\n{HEADLESS_USAGE}"
                     ));
                 }
                 args.widescreen = Some(raw);
@@ -965,8 +965,8 @@ mod tests {
     #[test]
     fn rejects_bad_widescreen_and_pad2_values() {
         for bad in [
-            vec!["z2-native", "--headless", "--widescreen", "21:9"],
-            vec!["z2-native", "--headless", "--widescreen", "17"],
+            vec!["z2-native", "--headless", "--widescreen", "32:9"],
+            vec!["z2-native", "--headless", "--widescreen", "21"],
             vec!["z2-native", "--headless", "--p2-hold", "300"],
             vec!["z2-native", "--headless", "--p2-hold", "zz"],
         ] {

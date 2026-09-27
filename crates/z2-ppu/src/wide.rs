@@ -44,8 +44,9 @@ use crate::state::{
 };
 use crate::{IndexedFrame, MarginSprite, HEIGHT, WIDTH};
 
-/// Max margin per side in 8-px tiles (128 px; widest output 512 px).
-pub const MAX_MARGIN_TILES: usize = 16;
+/// Max margin per side in 8-px tiles (160 px; widest output 576 px, one
+/// tile past the `21:9` preset).
+pub const MAX_MARGIN_TILES: usize = 20;
 /// Tile slots kept per side per line: `MAX_MARGIN_TILES + 1`, because the
 /// right edge needs `M + 1` slots when `fine_x != 0`.
 pub const MARGIN_SLOTS: usize = MAX_MARGIN_TILES + 1;
@@ -249,7 +250,8 @@ pub const fn wide_width(margin_tiles: u8) -> usize {
 /// Parse a widescreen preset into margin tiles per side, assuming square
 /// pixels: `"off"`/`"0"` -> 0, `"16:10"` -> 8 (384x240, exactly 1.6),
 /// `"16:9"` -> 11 (432x240, 1.8; true 16:9 is not reachable at tile
-/// granularity), `"N"` with `1 <= N <= 16` -> N. Case/whitespace tolerant;
+/// granularity), `"21:9"` -> 19 (560x240, exactly 2.333; a 3440x1440
+/// panel shows it at 6x with the full height), `"N"` with `1 <= N <= 20` -> N. Case/whitespace tolerant;
 /// anything else is `None`.
 #[must_use]
 pub fn preset_tiles(name: &str) -> Option<u8> {
@@ -260,6 +262,7 @@ pub fn preset_tiles(name: &str) -> Option<u8> {
     match n {
         "16:10" => Some(8),
         "16:9" => Some(11),
+        "21:9" => Some(19),
         _ => match n.parse::<u8>() {
             Ok(t) if usize::from(t) <= MAX_MARGIN_TILES => Some(t),
             _ => None,
@@ -717,8 +720,10 @@ mod tests {
         assert_eq!(preset_tiles("16:10"), Some(8));
         assert_eq!(preset_tiles("16:9"), Some(11));
         assert_eq!(preset_tiles("1"), Some(1));
+        assert_eq!(preset_tiles("21:9"), Some(19));
         assert_eq!(preset_tiles("16"), Some(16));
-        assert_eq!(preset_tiles("17"), None);
+        assert_eq!(preset_tiles("20"), Some(20));
+        assert_eq!(preset_tiles("21"), None);
         assert_eq!(preset_tiles("4:3"), None);
         assert_eq!(preset_tiles(""), None);
         assert_eq!(preset_tiles("wide"), None);
@@ -730,7 +735,8 @@ mod tests {
         assert_eq!(wide_width(8), 384);
         assert_eq!(wide_width(11), 432);
         assert_eq!(wide_width(16), 512);
-        assert_eq!(wide_width(200), 512, "clamped");
+        assert_eq!(wide_width(20), 576);
+        assert_eq!(wide_width(200), 576, "clamped");
         let mut w = WideFrame::new(11);
         assert_eq!((w.width, w.height, w.pixels.len()), (432, 240, 432 * 240));
         assert_eq!(w.margin_px(), 88);
@@ -740,7 +746,7 @@ mod tests {
             (256, 256 * 240, 0)
         );
         assert_eq!(w.row(3).len(), 256);
-        assert_eq!(Margins::new(99).tiles, 16);
+        assert_eq!(Margins::new(99).tiles, 20);
     }
 
     /// Two-page CHR image: page 2 tile 5 row 3 has plane 0 = `1000_0001`;

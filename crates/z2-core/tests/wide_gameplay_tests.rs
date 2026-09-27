@@ -185,7 +185,7 @@ fn off_by_default_and_toggles_its_traps() {
     g.set_wide_gameplay(Some(99));
     assert_eq!(
         g.wide_gameplay_tiles(),
-        Some(16),
+        Some(z2_ppu::MAX_MARGIN_TILES as u8),
         "clamped to the widescreen max"
     );
     g.set_wide_gameplay(None);

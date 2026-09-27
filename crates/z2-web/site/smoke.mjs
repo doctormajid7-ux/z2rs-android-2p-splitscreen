@@ -197,8 +197,8 @@ try {
     fail(`net.stateHash() must return a hash or throw, got ${JSON.stringify(netHash)}`);
   }
 
-  // The widescreen canvas must not overflow a phone-width viewport: the CSS
-  // caps the element at 100% of its container while keeping the aspect ratio.
+  // The widescreen canvas must not overflow a phone-width viewport, and the
+  // picture must keep its aspect ratio inside the TV screen.
   const narrow = await page.evaluate(async () => {
     window.z2.ext.setWide('16:9');
     const c = document.getElementById('screen');
@@ -208,10 +208,19 @@ try {
   await page.setViewportSize({ width: 380, height: 800 });
   await page.waitForTimeout(150);
   const phone = await page.evaluate(() => {
-    const c = document.getElementById('screen').getBoundingClientRect();
+    const el = document.getElementById('screen');
+    const c = el.getBoundingClientRect();
+    // The canvas fills the TV glass and letterboxes with `object-fit:
+    // contain`, so the picture is the backing store's shape fitted inside the
+    // element box, not the box itself.
+    let w = c.width, h = c.height;
+    if (getComputedStyle(el).objectFit === 'contain') {
+      const k = Math.min(c.width / el.width, c.height / el.height);
+      w = el.width * k; h = el.height * k;
+    }
     return {
-      cssW: c.width,
-      cssH: c.height,
+      cssW: w,
+      cssH: h,
       scrollW: document.documentElement.scrollWidth,
       clientW: document.documentElement.clientWidth,
     };

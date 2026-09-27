@@ -20,6 +20,8 @@ pub const CONFIG_FILE_NAME: &str = "z2-native.json";
 pub const APP_DIR_NAME: &str = "z2rs";
 /// Extracted assets image name inside the data dir.
 pub const ASSETS_FILE_NAME: &str = "assets.bin";
+/// Largest `--scale` / `window_scale` window multiplier.
+pub const MAX_WINDOW_SCALE: u32 = 8;
 
 /// Resolve the platform data dir (manual, no `dirs` dependency):
 ///
@@ -307,7 +309,7 @@ pub struct NativeConfig {
     #[serde(default)]
     pub gamepad: GamepadBindings,
     /// Widescreen margin preset: `"off"` | `"16:10"` (8 tiles/side) |
-    /// `"16:9"` (11) | `"N"` tiles per side (`0..=16`). Display only — the
+    /// `"16:9"` (11) | `"21:9"` (19) | `"N"` tiles per side (`0..=20`). Display only — the
     /// 256x240 NES frame is never touched. Default `"off"`.
     #[serde(default = "default_widescreen")]
     pub widescreen: String,
@@ -367,6 +369,16 @@ pub struct NativeConfig {
     /// Netplay settings.
     #[serde(default)]
     pub netplay: NetplayConfig,
+    /// Initial window size as a multiple (`1..=8`) of the frame (256x240, or
+    /// the widescreen width). `None` (the default) keeps the automatic size:
+    /// the largest of 3x/2x/1x that fits the monitor. `--scale` overrides it.
+    /// Display only: never part of any netplay identity.
+    #[serde(default)]
+    pub window_scale: Option<u32>,
+    /// Start in borderless fullscreen (same as `--fullscreen`; F11 or
+    /// Alt+Enter toggle it at runtime). Display only. Default off.
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 fn default_widescreen() -> String {
@@ -416,6 +428,8 @@ impl Default for NativeConfig {
             keys_p2: KeyBindings::default_p2(),
             gamepad_p2: GamepadBindings::default(),
             netplay: NetplayConfig::default(),
+            window_scale: None,
+            fullscreen: false,
         }
     }
 }
@@ -445,6 +459,14 @@ impl NativeConfig {
     #[must_use]
     pub fn effective_hd_scale(&self) -> u32 {
         self.hd_scale.clamp(1, z2_render::MAX_SCALE)
+    }
+
+    /// Configured window scale, if any, clamped into `1..=MAX_WINDOW_SCALE`
+    /// so a nonsense config value cannot stop the app from starting (the
+    /// `--scale` flag *is* validated and exits 2 instead).
+    #[must_use]
+    pub fn effective_window_scale(&self) -> Option<u32> {
+        self.window_scale.map(|s| s.clamp(1, MAX_WINDOW_SCALE))
     }
 
     /// Effective audio rate (falls back to 44100 for anything unsupported).
@@ -550,12 +572,13 @@ mod tests {
         assert_eq!(tiles("off"), 0);
         assert_eq!(tiles("16:10"), 8, "384x240");
         assert_eq!(tiles("16:9"), 11, "432x240");
+        assert_eq!(tiles("21:9"), 19, "560x240 ultrawide");
         assert_eq!(tiles("4"), 4);
-        assert_eq!(tiles("16"), 16, "widest supported margin");
+        assert_eq!(tiles("20"), 20, "widest supported margin");
         // A bad preset in the CONFIG degrades to off rather than refusing to
         // start (the CLI flag is validated and exits 2 instead).
-        assert_eq!(tiles("17"), 0, "out of range -> off");
-        assert_eq!(tiles("21:9"), 0, "unknown preset -> off");
+        assert_eq!(tiles("21"), 0, "out of range -> off");
+        assert_eq!(tiles("32:9"), 0, "unknown preset -> off");
         assert_eq!(tiles(""), 0);
         assert_eq!(tiles("garbage"), 0);
     }
@@ -596,6 +619,30 @@ mod tests {
         assert_eq!(c.hd_scale, 1);
         assert!(c.hd_record.is_none());
         assert!(c.gamepad_p2_index.is_none());
+        assert!(c.window_scale.is_none());
+        assert!(c.effective_window_scale().is_none());
+        assert!(!c.fullscreen);
+    }
+
+    /// The window keys parse when present, and a bad scale is clamped rather
+    /// than rejected (a stale config must never stop the app).
+    #[test]
+    fn window_keys_parse_and_clamp() {
+        let c: NativeConfig =
+            serde_json::from_str(r#"{ "window_scale": 4, "fullscreen": true }"#).expect("parses");
+        assert_eq!(c.window_scale, Some(4));
+        assert_eq!(c.effective_window_scale(), Some(4));
+        assert!(c.fullscreen);
+        for (raw, want) in [("0", 1u32), ("99", MAX_WINDOW_SCALE), ("2", 2)] {
+            let c: NativeConfig =
+                serde_json::from_str(&format!("{{ \"window_scale\": {raw} }}")).expect("parses");
+            assert_eq!(c.effective_window_scale(), Some(want), "window_scale {raw}");
+        }
+        let c: NativeConfig =
+            serde_json::from_str(r#"{ "window_scale": null }"#).expect("null parses");
+        assert!(c.window_scale.is_none());
+        let d = NativeConfig::default();
+        assert!(d.window_scale.is_none() && !d.fullscreen);
     }
 
     /// Every new key parses when it IS present, and the scale is clamped

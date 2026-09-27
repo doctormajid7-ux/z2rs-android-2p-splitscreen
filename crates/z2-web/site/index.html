@@ -2,53 +2,290 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>z2rs — Zelda II reconstruction (web)</title>
 <link rel="icon" href="data:," />
 <style>
-  :root { color-scheme: dark; }
-  body { background: #101014; color: #e8e8ec; font: 14px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 16px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  p.sub { color: #a8a8b4; margin: 0 0 12px; }
-  /* The canvas is runtime-sized (widescreen and HD scale both change it), so
-     the stage is a wrapping flex row: side by side when there is room, stacked
-     on a phone. `min-width: 0` lets the panel shrink instead of overflowing. */
-  #stage { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-  #stage > .panel { flex: 1 1 260px; min-width: 0; }
-  /* app.js sets --css-w to the NES-pixel width times an integer zoom; the
-     backing store may be larger (HD pack), hence `height: auto` and
-     `aspect-ratio` so the picture never stretches. `max-width: 100%` wins over
-     the width, so a 432-px-wide frame still fits a 360-px phone. */
-  #screen {
-    image-rendering: pixelated;
-    display: block;
-    /* Keep the picture at the size the zoom asked for; when it no longer fits
-       beside the key panel, `max-width: 100%` caps it and the panel wraps
-       underneath instead of the canvas being squeezed. */
-    flex: 0 0 auto;
-    width: var(--css-w, 512px);
-    max-width: 100%;
-    height: auto;
-    background: #000;
-    border: 1px solid #333;
+  @import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap');
+
+  /* The page is a kid's bedroom: a CRT on a desk with the game on its screen,
+     and the controls built into the TV cabinet and a console deck in front of
+     it. The art lives under assets/.
+     app.js hands the stylesheet the art as --art-* custom properties on #room
+     (resolved against its own URL), because this stylesheet is inlined into
+     pages at different paths and a relative url() here would point elsewhere. */
+  :root {
+    color-scheme: dark;
+    --ink: #eef0ff;
+    --ink-dim: #a9aed6;
+    --navy: #161a3b;
+    --navy-2: #1d2250;
+    --navy-edge: #343b7a;
+    --btn: #2a3176;
+    --btn-edge: #7f88e0;
+    --btn-hot: #3a43a0;
+    --gold: #ffd35a;
+    --plastic-hi: #8a84a2;
+    --plastic: #6c6787;
+    --plastic-lo: #4c4764;
+    --red: #e5484d;
+    --pixel: 'Silkscreen', ui-monospace, monospace;
+    --term: 'VT323', ui-monospace, monospace;
   }
-  #drop { border: 2px dashed #555; border-radius: 8px; padding: 18px; text-align: center; color: #bdbdc8; margin: 12px 0; }
-  #drop.over { border-color: #7cf; background: #182028; }
-  #drop p { margin: 8px 0 0; }
-  #drop p[hidden] { display: none; }
-  fieldset { border: 1px solid #333; border-radius: 8px; margin: 12px 0; min-width: 0; }
-  fieldset.unsupported { opacity: 0.55; }
-  legend { padding: 0 6px; color: #bdbdc8; }
-  button, select, input { font: inherit; margin: 2px; max-width: 100%; }
-  button { background: #23232c; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
-  button:disabled { opacity: 0.45; cursor: default; }
-  label { display: inline-block; }
-  #status { white-space: pre-wrap; overflow-wrap: anywhere; background: #0a0a0e; border: 1px solid #2c2c34; border-radius: 8px; padding: 8px; min-height: 3em; }
-  code, kbd { background: #1d1d24; border-radius: 4px; padding: 0 4px; }
-  table.keys { border-collapse: collapse; }
-  table.keys td, table.keys th { border: 1px solid #333; padding: 2px 6px; }
-  .warn { color: #ffcf7a; }
-  .err { color: #ff9b8f; }
+  body {
+    margin: 0; background: #140e1d; color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow-x: hidden;
+  }
+  a { color: #9fc8ff; }
+  code, kbd { background: rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 0 4px; font-size: 0.92em; }
+  kbd { border: 1px solid rgba(255, 255, 255, 0.18); border-bottom-width: 2px; }
+  .vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* --hw is the width of the TV scene; everything painted on it is placed in
+     percentages of the art and lettered in multiples of --u (one pixel of the
+     1086-px-wide source art), so it all scales together. */
+  #room {
+    --hw: min(calc(100vw - 20px), 1180px, calc((100svh - 64px) * 1.1289));
+    --u: calc(var(--hw) / 1086);
+    position: relative; min-height: 100vh;
+    padding: 0 10px 40px;
+  }
+  #roomBg {
+    position: fixed; inset: 0; z-index: -1;
+    background: #140e1d var(--art-bg) center / cover no-repeat;
+  }
+  #roomBg::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 30%, transparent 30%, rgba(10, 6, 16, 0.75) 100%);
+  }
+
+  /* --- header ------------------------------------------------------------ */
+  .top {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px;
+    max-width: 1180px; margin: 0 auto; padding: 12px 4px 8px;
+  }
+  .top h1 { margin: 0; font: 700 22px/1 var(--pixel); color: var(--gold); letter-spacing: 1px;
+    text-shadow: 0 2px 0 #7a3b12, 0 0 18px rgba(255, 180, 60, 0.35); }
+  .top h1 small { font: 400 12px var(--pixel); color: var(--ink-dim); letter-spacing: 0; text-shadow: none; margin-left: 10px; }
+  .top nav { display: flex; gap: 14px; font: 12px var(--pixel); }
+  .top nav a { color: #ffc6de; text-decoration: none; }
+  .top nav a:hover { text-decoration: underline; }
+
+  /* --- the TV ------------------------------------------------------------ */
+  .tv {
+    position: relative; width: var(--hw); aspect-ratio: 1086 / 962; margin: 0 auto;
+  }
+  /* The art sits on its own layer so its soft edges can fade into the room
+     without the mask also clipping the screen when it goes fullscreen. */
+  .tv-art {
+    position: absolute; inset: 0; background: var(--art-hero) 0 0 / 100% 100% no-repeat;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 10%);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 10%);
+    mask-composite: intersect;
+  }
+  /* The glass. #drop is both the screen and the ROM drop target. */
+  #drop {
+    position: absolute; left: 8.6%; top: 24%; width: 68.7%; height: 66.9%;
+    border-radius: 5.5% / 6.5%; overflow: hidden; background: #05060a;
+    box-shadow: inset 0 0 calc(var(--u) * 30) rgba(0, 0, 0, 0.9);
+  }
+  #screen {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; image-rendering: pixelated; display: block; background: #000;
+  }
+  /* CRT glass: scanlines, a little vignette and a highlight. Toggled by the
+     Screen card's checkbox; off, the picture is untouched. */
+  #room.crt #drop::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background:
+      radial-gradient(ellipse at 30% 18%, rgba(255, 255, 255, 0.08), transparent 45%),
+      radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.5) 100%),
+      repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px);
+  }
+  /* "Insert cartridge" screen until a ROM runs. */
+  .osd {
+    position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: calc(var(--u) * 14); text-align: center;
+    padding: 6%; color: #d8f7ff; font: max(13px, calc(var(--u) * 26)) / 1.15 var(--term);
+    background:
+      radial-gradient(ellipse at center, rgba(40, 90, 200, 0.55), rgba(8, 14, 50, 0.95) 75%),
+      #0a1238;
+  }
+  .osd::before {
+    content: ''; position: absolute; inset: -50%; opacity: 0.12; pointer-events: none;
+    background-image: repeating-radial-gradient(circle at 17% 32%, #fff 0 1px, transparent 1px 3px),
+      repeating-radial-gradient(circle at 71% 64%, #fff 0 1px, transparent 1px 4px);
+    animation: static 0.35s steps(4) infinite;
+  }
+  @keyframes static { 0% { transform: translate(0, 0); } 25% { transform: translate(-3%, 2%); }
+    50% { transform: translate(2%, -3%); } 75% { transform: translate(-2%, -1%); } }
+  .osd > * { position: relative; margin: 0; }
+  .osd .ch { position: absolute; top: 5%; right: 6%; color: #7dff8a; font-size: calc(var(--u) * 34); }
+  .osd .big { font: 700 max(13px, calc(var(--u) * 34)) / 1 var(--pixel); color: var(--gold); letter-spacing: 1px;
+    text-shadow: 0 calc(var(--u) * 3) 0 #7a3b12; animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.55; } }
+  .osd .legal { font-size: calc(var(--u) * 20); color: #b9c8ff; max-width: 34em; }
+  .osd .btn { font-size: calc(var(--u) * 24); padding: calc(var(--u) * 8) calc(var(--u) * 22); }
+  #drop.over .osd { background: radial-gradient(ellipse at center, rgba(60, 160, 120, 0.7), rgba(8, 40, 30, 0.95) 75%); }
+  #drop.has-rom .osd { display: none; }
+  @media (prefers-reduced-motion: reduce) { .osd::before, .osd .big { animation: none; } }
+
+  /* Painted-over labels on the cabinet, relettered for this game. */
+  .badge { position: absolute; pointer-events: none; color: #3a3747; font-weight: 800; line-height: 1;
+    letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+  .badge.bits { left: 11.9%; top: 92.9%; font-size: calc(var(--u) * 17); }
+  .badge.brand { left: 42.3%; top: 94.9%; font: 700 calc(var(--u) * 14) / 1 var(--pixel); }
+  /* The painted buttons under the screen work. */
+  .tv-btn {
+    position: absolute; padding: 0; margin: 0; border: 0; background: transparent; cursor: pointer;
+    border-radius: calc(var(--u) * 8);
+  }
+  .tv-btn:hover, .tv-btn:focus-visible { background: rgba(255, 240, 180, 0.28); outline: 2px solid rgba(255, 220, 120, 0.7); }
+  .tv-btn:active { background: rgba(0, 0, 0, 0.25); }
+  .tv-btn.menu { left: 51.6%; top: 96.1%; width: 3.7%; height: 2.1%; }
+  .tv-btn.vol  { left: 56.3%; top: 96.1%; width: 3.7%; height: 2.1%; }
+  .tv-btn.chd  { left: 60.4%; top: 96.1%; width: 3.5%; height: 2.1%; }
+  .tv-btn.chu  { left: 64.7%; top: 96.1%; width: 3.5%; height: 2.1%; }
+  .tv-btn.knob { left: 73.4%; top: 93.4%; width: 4%; height: 4.8%; border-radius: 50%; }
+  #led { position: absolute; left: 71.1%; top: 95.2%; width: 0.9%; aspect-ratio: 1; border-radius: 50%;
+    background: #9dff6a; box-shadow: 0 0 calc(var(--u) * 8) #7dff4a; opacity: 0; transition: opacity 0.3s; }
+  #drop.has-rom ~ #led { opacity: 1; }
+
+  /* The CONTROLS panel on the right of the cabinet, relettered. */
+  .keys {
+    position: absolute; left: 82.8%; top: 46.4%; width: 12.65%; height: 32.7%;
+    margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column;
+    background: #1d1c3b; border-radius: calc(var(--u) * 6);
+    font: 600 calc(var(--u) * 13) / 1.1 system-ui, sans-serif; color: #e6e4ff;
+  }
+  .keys li { flex: 1; display: flex; align-items: center; gap: calc(var(--u) * 8);
+    padding: 0 calc(var(--u) * 7); border-bottom: 1px solid rgba(255, 255, 255, 0.09); }
+  .keys li:last-child { border-bottom: 0; }
+  .keys li span { flex: 1; }
+  .keys kbd { font: 700 calc(var(--u) * 10.5) / 1 var(--pixel); padding: calc(var(--u) * 2) calc(var(--u) * 3); background: #0d0c22; border-color: #4b4a80; color: #bdbcff; }
+  .keys .pad { flex: 0 0 auto; width: calc(var(--u) * 24); height: calc(var(--u) * 24); display: grid; place-items: center;
+    border-radius: 50%; font: 700 calc(var(--u) * 13) / 1 var(--pixel); color: #fff; box-shadow: inset 0 calc(var(--u) * -3) 0 rgba(0, 0, 0, 0.3); }
+  .keys .pad.a { background: #c8322f; } .keys .pad.b { background: #e7a321; color: #3b2400; }
+  .keys .pad.pill { border-radius: calc(var(--u) * 5); width: calc(var(--u) * 26); height: calc(var(--u) * 16); background: #c9c6e8; color: #2a2850; font-size: calc(var(--u) * 8); }
+  .keys .pad.dpad { border-radius: 0; background: none; box-shadow: none; color: #9a98c8; font-size: calc(var(--u) * 20); }
+  .keys li.p2 { font-size: calc(var(--u) * 10.5); color: var(--ink-dim); line-height: 1.25; }
+
+  /* --- the console deck --------------------------------------------------- */
+  .deck {
+    position: relative; z-index: 1; max-width: 1180px; margin: calc(var(--u) * -4) auto 0;
+    padding: 14px; border-radius: 18px;
+    background: linear-gradient(180deg, var(--plastic-hi), var(--plastic) 12%, var(--plastic-lo));
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.25), inset 0 -3px 0 rgba(0, 0, 0, 0.35), 0 18px 40px rgba(0, 0, 0, 0.55);
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+  }
+  .card {
+    position: relative; min-width: 0; padding: 12px 14px 12px; border-radius: 12px;
+    background: linear-gradient(180deg, var(--navy-2), var(--navy));
+    border: 2px solid var(--navy-edge);
+    box-shadow: 0 0 0 4px rgba(40, 36, 60, 0.55), inset 0 0 24px rgba(0, 0, 0, 0.45);
+  }
+  .card.wide { grid-column: span 2; }
+  .card.unsupported > :not(h2) { opacity: 0.5; }
+  .card h2 {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+    font: 700 15px/1.1 var(--pixel); color: var(--gold); letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .card h2 img { height: 34px; width: auto; image-rendering: pixelated; flex: 0 0 auto; }
+  .card p { margin: 6px 0; }
+  .sub, .card .note { color: var(--ink-dim); font-size: 12.5px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0; }
+  .card label { display: inline-flex; align-items: center; gap: 6px; }
+  .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; margin: 8px 0; }
+  details { margin-top: 8px; }
+  details > summary { cursor: pointer; color: #c6c9f4; font: 12px var(--pixel); }
+  details[open] > summary { margin-bottom: 6px; }
+
+  button, .btn, select, input {
+    font: inherit; max-width: 100%; color: var(--ink); border-radius: 7px;
+  }
+  button, .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 5px 12px; background: var(--btn); border: 2px solid var(--btn-edge); cursor: pointer;
+    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35); white-space: nowrap;
+  }
+  button:hover:not(:disabled), .btn:hover { background: var(--btn-hot); }
+  button:active:not(:disabled), .btn:active { transform: translateY(1px); box-shadow: none; }
+  button:disabled { opacity: 0.42; cursor: default; }
+  button.rec::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+  select, input[type=text], input:not([type]) {
+    background: #0e1130; border: 2px solid #4a529c; padding: 4px 8px;
+  }
+  input[type=checkbox] { accent-color: #8b93ff; width: 16px; height: 16px; margin: 0; }
+  input:focus-visible, select:focus-visible, button:focus-visible, .btn:focus-within { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+  .rom-warn { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px;
+    background: rgba(255, 196, 80, 0.1); border: 1px solid rgba(255, 196, 80, 0.45); color: #f6e2b6; }
+  #status {
+    white-space: pre-wrap; overflow-wrap: anywhere; min-height: 4.5em; margin: 0;
+    font: 19px/1.1 var(--term); color: #c9f7c9;
+  }
+  .status-art { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 8px; }
+  .status-art img { height: 58px; image-rendering: pixelated; }
+  #netStatus::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    background: #6b6f99; margin-right: 7px; vertical-align: 1px; }
+  .hidden-controls { display: none; }
+
+  /* --- the desk ------------------------------------------------------------ */
+  .desk {
+    max-width: 1180px; margin: -18px auto 0; aspect-ratio: 1086 / 186;
+    background: var(--art-desk) center top / 100% auto no-repeat;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent), linear-gradient(to bottom, #000 70%, transparent);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent), linear-gradient(to bottom, #000 70%, transparent);
+    mask-composite: intersect;
+  }
+
+  /* --- manual + sticky notes ---------------------------------------------- */
+  #desktop {
+    max-width: 860px; margin: 26px auto 0; padding: 22px 26px 18px; color: #2c2438;
+    background: linear-gradient(180deg, #fbf3dc, #f1e3c0); border-radius: 6px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(90, 60, 20, 0.15);
+    transform: rotate(-0.4deg);
+  }
+  #desktop h2 { margin: 0 0 4px; font: 700 20px var(--pixel); color: #7a2a1a; }
+  #desktop .kicker { margin: 0 0 12px; font: 12px var(--pixel); color: #8a6a4a; }
+  #desktop h3 { margin: 16px 0 4px; font: 700 13px var(--pixel); color: #3b2a5a; }
+  #desktop ol, #desktop ul { margin: 0 0 8px; padding-left: 22px; }
+  #desktop li { margin: 3px 0; }
+  #desktop a { color: #2346b8; }
+  #desktop code, #desktop kbd { background: rgba(60, 40, 10, 0.1); color: #3a2a10; border-color: rgba(60, 40, 10, 0.25); }
+  #desktop .sub { color: #6a5a48; font-size: 13px; }
+  #links {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; max-width: 900px; margin: 30px auto 0;
+  }
+  #links a {
+    display: block; padding: 14px 16px 18px; min-width: 120px; text-align: center; text-decoration: none;
+    font: 700 13px var(--pixel); color: #3a2a18; background: #ffe27a;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45); transform: rotate(-2deg); transition: transform 0.15s;
+  }
+  #links a:nth-child(2n) { background: #ffb3cf; transform: rotate(2deg); }
+  #links a:nth-child(3n) { background: #b8f0c8; transform: rotate(-1deg); }
+  #links a:hover { transform: rotate(0) translateY(-3px); }
+
+  /* --- fullscreen ------------------------------------------------------------
+     The document goes fullscreen (so the touch controller, fixed to the
+     viewport, comes along) and #room.fs pins the screen over everything. On
+     browsers without the Fullscreen API (iPhone) the class alone fills the tab. */
+  #fsExit { display: none; }
+  #room.fs #drop {
+    position: fixed; inset: 0; width: auto; height: auto; z-index: 15; border-radius: 0;
+    background: #000; box-shadow: none;
+  }
+  #room.fs #fsExit {
+    display: inline-flex; position: absolute; top: 12px; right: 12px; z-index: 4;
+    opacity: 0; transition: opacity 0.25s; font: 12px var(--pixel);
+    background: rgba(20, 22, 50, 0.75);
+  }
+  #room.fs #drop:hover #fsExit, #room.fs #fsExit:focus-visible { opacity: 1; }
+  @media (pointer: coarse) { #room.fs #fsExit { opacity: 0.8; } }
+
   /* On-screen controller for touch devices (app.js "touch gamepad"). It floats
      over the bottom of the viewport so it stays under the thumbs while the page
      scrolls; only the controls take touches, the gap between them does not. */
@@ -77,10 +314,12 @@
   #touchpad .tp-dpad.left i.l, #touchpad .tp-dpad.right i.r { background: rgba(124, 204, 255, 0.75); }
   #touchpad button {
     margin: 0; padding: 0; font: 600 15px system-ui, sans-serif; color: rgba(255, 255, 255, 0.9);
-    background: rgba(36, 36, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(36, 36, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: none;
   }
   #touchpad button.on { background: rgba(124, 204, 255, 0.6); }
-  #touchpad .tp-mid { display: flex; gap: 10px; margin-bottom: 4px; }
+  /* The pad halves keep their size: the i-tiles and A/B are placed in px. */
+  #touchpad .tp-dpad, #touchpad .tp-ab { flex: 0 0 auto; }
+  #touchpad .tp-mid { display: flex; gap: 14px; margin: 0 18px 4px; }
   #touchpad .tp-mid button { width: 62px; height: 30px; border-radius: 15px; font-size: 11px; letter-spacing: 0.04em; }
   #touchpad .tp-ab { position: relative; width: 150px; height: 124px; }
   #touchpad .tp-ab button { position: absolute; width: 68px; height: 68px; border-radius: 50%; }
@@ -90,157 +329,291 @@
      rather than a class on the body element: a hosting framework may own the
      body, and nothing here may touch what it renders. */
   #touchSpacer { height: 190px; }
+  /* A phone in portrait has no room for Select/Start between the pads: they
+     drop to a row of their own underneath, centred, and the pads move up. */
+  @media (max-width: 480px) {
+    #touchpad { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+    #touchpad .tp-mid {
+      position: absolute; left: 50%; transform: translateX(-50%); margin: 0;
+      bottom: calc(14px + env(safe-area-inset-bottom));
+    }
+    #touchSpacer { height: 240px; }
+  }
   #touchSpacer[hidden] { display: none; }
-  /* A phone held sideways is shorter than the picture: fit the canvas to the
-     viewport height and letterbox it instead of stretching it. */
-  @media (pointer: coarse) {
-    #screen { max-height: 100dvh; object-fit: contain; }
+
+  /* --- smaller screens ------------------------------------------------------ */
+  @media (max-width: 980px) {
+    .deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card.wide { grid-column: 1 / -1; }
   }
-  /* Links out of the page (article, Discord, source). Wraps to one per line
-     on a narrow screen rather than overflowing. */
-  #links {
-    display: flex; flex-wrap: wrap; gap: 6px 18px;
-    border-top: 1px solid #2c2c34; margin: 16px 0 0; padding: 12px 0 0;
-    color: #a8a8b4;
-  }
-  #links a { color: #8cc6ff; }
-  /* Phone: one column, and let the key table scroll rather than widen it. */
-  @media (max-width: 560px) {
-    body { padding: 10px; }
-    #stage { gap: 10px; }
-    .scroller { overflow-x: auto; }
+  /* A phone: the TV fills the width and the lettering on the cabinet is too
+     small to read, so the panel keeps its painted look and the key list goes. */
+  @media (max-width: 640px) {
+    #room { --hw: calc(100vw - 8px); padding: 0 4px 24px; }
+    .top h1 small { display: none; }
+    .keys li { visibility: hidden; }
+    .deck { grid-template-columns: minmax(0, 1fr); padding: 10px; gap: 10px; border-radius: 14px; }
+    .card.wide { grid-column: auto; }
+    #desktop { padding: 16px; transform: none; }
+    .osd .legal { display: none; }
+    .osd { gap: 6px; }
+    .osd .btn { font-size: 14px; }
   }
 </style>
 </head>
 <body>
-<h1>z2rs — Zelda II reconstruction (web frontend)</h1>
-<p class="sub" id="romIntro">Drop your own Zelda II (USA) <code>.nes</code> dump below. The ROM is hash-gated
-in-tab (body CRC32 <code>BA322865</code>) and never uploaded anywhere.</p>
+<div id="room" class="crt">
+<div id="roomBg"></div>
 
-<div id="stage">
-  <canvas id="screen" width="256" height="240"></canvas>
-  <div class="panel">
-    <div class="scroller">
-      <table class="keys">
-        <tr><th>NES</th><th>Player 1</th><th>Player 2 (co-op)</th><th>Gamepad</th></tr>
-        <tr><td>D-pad</td><td><kbd>←↑↓→</kbd></td><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>D-pad / left stick</td></tr>
-        <tr><td>A</td><td><kbd>Z</kbd></td><td><kbd>G</kbd></td><td>button 1</td></tr>
-        <tr><td>B</td><td><kbd>X</kbd></td><td><kbd>F</kbd></td><td>button 0</td></tr>
-        <tr><td>Start</td><td><kbd>Enter</kbd></td><td><kbd>T</kbd></td><td>button 9</td></tr>
-        <tr><td>Select</td><td><kbd>Shift</kbd></td><td><kbd>R</kbd></td><td>button 8</td></tr>
-      </table>
+<header class="top">
+  <h1>z2rs<small>Zelda II, rebuilt in Rust, in your browser</small></h1>
+  <nav>
+    <a href="#desktop">Desktop app</a>
+    <a href="https://discord.gg/buZrPenm6K" target="_blank" rel="noopener noreferrer">Discord</a>
+    <a href="https://github.com/troyedwardsjr/z2rs" target="_blank" rel="noopener noreferrer">Source</a>
+  </nav>
+</header>
+
+<section class="tv" aria-label="The game">
+  <div class="tv-art"></div>
+  <div id="drop">
+    <canvas id="screen" width="256" height="240"></canvas>
+    <div class="osd" id="dropPrompt">
+      <span class="ch">AV-1</span>
+      <p class="big">Insert cartridge</p>
+      <p>Drop your own Zelda&nbsp;II (USA) <code>.nes</code> on the screen</p>
+      <label class="btn" for="romFile">Choose ROM file…</label>
+      <p class="legal">No ROM is provided. It is checked in this tab and never leaves your browser.</p>
+      <input type="file" id="romFile" class="vh" accept=".nes,.bin" />
     </div>
-    <p><button id="audioBtn" disabled>Enable audio</button>
-       <button id="pauseBtn" disabled>Pause</button>
-       <button id="zoomOut" title="Smaller picture">−</button>
-       <button id="zoomIn" title="Bigger picture">+</button>
-       <button id="touchBtn" title="On-screen controller for touch screens (player 1)">Touch pad</button></p>
-    <p>
-      <label>Screen
+    <button type="button" id="fsExit" title="Leave fullscreen (Esc)">✕ Exit fullscreen</button>
+  </div>
+  <span id="led"></span>
+  <span class="badge bits">8-BIT GOODNESS</span>
+  <span class="badge brand">z2rs</span>
+  <button type="button" class="tv-btn menu" data-click="pauseBtn" title="Pause / resume" aria-label="Pause or resume"></button>
+  <button type="button" class="tv-btn vol" data-click="audioBtn" title="Enable audio" aria-label="Enable audio"></button>
+  <button type="button" class="tv-btn chd" data-channel="-1" title="Previous screen shape" aria-label="Previous screen shape"></button>
+  <button type="button" class="tv-btn chu" data-channel="1" title="Next screen shape" aria-label="Next screen shape"></button>
+  <button type="button" class="tv-btn knob" data-click="fsBtn" title="Fullscreen (F11)" aria-label="Fullscreen"></button>
+  <ul class="keys" aria-label="Keyboard controls">
+    <li><b class="pad dpad">✚</b><span>Move</span><kbd>←↑↓→</kbd></li>
+    <li><b class="pad a">A</b><span>Jump</span><kbd>Z</kbd></li>
+    <li><b class="pad b">B</b><span>Attack</span><kbd>X</kbd></li>
+    <li><b class="pad pill">START</b><span>Start</span><kbd>Enter</kbd></li>
+    <li><b class="pad pill">SEL</b><span>Select</span><kbd>Shift</kbd></li>
+    <li class="p2"><span>Player 2: WASD to move, G jump, F attack, T start, R select</span></li>
+    <li class="p2"><span>Gamepads work too: plug one in and press a button.</span></li>
+  </ul>
+</section>
+
+<main class="deck">
+  <section class="card" data-rom-drop>
+    <h2><img data-art="ico-cart.png" alt="" />Game ROM</h2>
+    <p class="rom-warn" id="romIntro"><strong>No ROM is provided.</strong> This site does not host or
+      distribute the game. Supply your own legally obtained Zelda II (USA) <code>.nes</code> dump. It is
+      hash-gated in the tab (body CRC32 <code>BA322865</code>) and never leaves your browser.</p>
+    <div class="row"><label class="btn" for="romFile">Choose file…</label><span class="sub">or drop it on the TV</span></div>
+  </section>
+
+  <section class="card">
+    <h2><img data-art="ico-link.png" alt="" />Player</h2>
+    <div class="row">
+      <button id="audioBtn" disabled>Enable audio</button>
+      <button id="pauseBtn" disabled>Pause</button>
+      <button id="fsBtn" title="Fullscreen (F11, or double-click the picture)">Fullscreen</button>
+      <button id="touchBtn" title="On-screen controller for touch screens (player 1)">Touch pad</button>
+    </div>
+    <p><label><input type="checkbox" id="coopChk" /> Local co-op (2 players on this keyboard)</label></p>
+    <span class="hidden-controls"><button id="zoomOut" tabindex="-1">−</button><button id="zoomIn" tabindex="-1">+</button></span>
+  </section>
+
+  <section class="card">
+    <h2><img data-art="ico-heart.png" alt="" />Status</h2>
+    <pre id="status">Loading wasm…</pre>
+    <div class="status-art"><img data-art="ico-link.png" alt="" /><img data-art="ico-castle.png" alt="" /></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Screen</h2>
+    <div class="row">
+      <label>Shape
         <select id="wideSel">
           <option value="off">Standard (256×240)</option>
           <option value="16:10">Wide 16:10 (384×240)</option>
           <option value="16:9">Wide 16:9 (432×240)</option>
+          <option value="21:9">Ultrawide 21:9 (560×240)</option>
         </select>
       </label>
-      <label><input type="checkbox" id="clipChk" checked /> fill left edge</label>
-      <label><input type="checkbox" id="rclipChk" checked /> fill right edge</label>
-      <label title="draw side-view enemies, NPCs and items outside the window into the margins"><input type="checkbox" id="mspritesChk" checked /> objects in margins</label>
-      <label title="Changes gameplay: overworld encounters, side-view enemies and townsfolk appear out in the widescreen margins. Both netplay players must match."><input type="checkbox" id="wideGameChk" checked /> enemies in the margins</label>
-    </p>
-    <p><label><input type="checkbox" id="coopChk" /> local co-op (2 players)</label></p>
-    <p class="sub" id="wideNote">With <em>enemies in the margins</em> on, overworld
+      <label><input type="checkbox" id="crtChk" checked /> CRT scanlines</label>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="clipChk" checked /> Fill left edge</label>
+      <label><input type="checkbox" id="rclipChk" checked /> Fill right edge</label>
+      <label title="Draw side-view enemies, NPCs and items outside the window into the margins"><input type="checkbox" id="mspritesChk" checked /> Objects in margins</label>
+      <label title="Changes gameplay: overworld encounters, side-view enemies and townsfolk appear out in the widescreen margins. Both netplay players must match."><input type="checkbox" id="wideGameChk" checked /> Enemies in the margins</label>
+    </div>
+    <p class="note" id="wideNote">With <em>enemies in the margins</em> on, overworld
       encounters, side-view enemies and townsfolk spawn out past the widescreen
       margins instead of popping in at the original screen edge (this changes
       gameplay). Off, the margins are scenery only. Projectiles still appear at the
       original edge, and dialogue boxes do not extend into the margins. Player 2
       exists in side-view areas only.</p>
-  </div>
-</div>
+  </section>
 
-<div id="drop"><span id="dropPrompt">Drop <code>.nes</code> ROM here, or <input type="file" id="romFile" accept=".nes,.bin" /></span>
-  <!-- Shown only when a host serves the ROM itself (#z2-config rom.url);
-       the vanilla site never reveals either line. -->
-  <p id="romAuto" class="sub" hidden></p>
-  <p id="romKeyBox" hidden><label>Access key <input type="password" id="romKey" size="20" autocomplete="off" /></label>
-    <button id="romKeyBtn">Load ROM</button></p>
-</div>
+  <section class="card" id="hdBox">
+    <h2><img data-art="ico-hd.png" alt="" />HD graphics pack</h2>
+    <div class="row">
+      <label class="btn" for="hdDir">Pack folder…</label>
+      <input type="file" id="hdDir" class="vh" webkitdirectory directory multiple />
+      <label>Scale
+        <select id="hdScale">
+          <option value="1" selected>1× (256 wide)</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+    </div>
+    <div class="row"><button id="hdClear" disabled>Use original art</button></div>
+    <div id="hdStatus" class="sub">no pack: original art at 1×.</div>
+    <details>
+      <summary>About packs</summary>
+      <p class="sub">Unzip the pack first, then pick the folder that contains <code>pack.json</code> (make one with
+        <code>cargo xtask hdpack template --out DIR --scale 2</code>). The PNG sheets are decoded
+        in wasm — nothing is uploaded. Large scales cost frame time and memory: 2× at 256 wide is
+        about 0.56 ms per frame, 4× widescreen about 1.9 ms plus ~1 MiB of decoded sheet per CHR
+        page. A pack that fails to load is reported here and the game keeps playing with the
+        original art.</p>
+    </details>
+  </section>
 
-<fieldset id="hdBox">
-  <legend>HD graphics pack</legend>
-  <label>Pack folder <input type="file" id="hdDir" webkitdirectory directory multiple /></label>
-  <label>Scale
-    <select id="hdScale">
-      <option value="1" selected>1× (256 wide)</option>
-      <option value="2">2×</option>
-      <option value="3">3×</option>
-      <option value="4">4×</option>
-    </select>
-  </label>
-  <button id="hdClear" disabled>Use original art</button>
-  <div id="hdStatus" class="sub">no pack: original art at 1×.</div>
-  <p class="sub">Pick the folder that contains <code>pack.json</code> (make one with
-    <code>cargo xtask hdpack template --out DIR --scale 2</code>). The PNG sheets are decoded
-    in wasm — nothing is uploaded. Large scales cost frame time and memory: 2× at 256 wide is
-    about 0.56 ms per frame, 4× widescreen about 1.9 ms plus ~1 MiB of decoded sheet per CHR
-    page. A pack that fails to load is reported here and the game keeps playing with the
-    original art.</p>
-</fieldset>
+  <section class="card">
+    <h2><img data-art="ico-floppy.png" alt="" />Saves</h2>
+    <div class="row">
+      <label>Slot
+        <select id="slotSel">
+          <option value="slot0">1</option>
+          <option value="slot1">2</option>
+          <option value="slot2">3</option>
+        </select>
+      </label>
+      <button id="snapSave" disabled>Save</button>
+      <button id="snapLoad" disabled>Load</button>
+    </div>
+    <div class="row">
+      <button id="sramSave" disabled title="Save the cartridge's battery memory">Save SRAM</button>
+      <button id="sramLoad" disabled title="Load the cartridge's battery memory">Load SRAM</button>
+    </div>
+    <div class="row">
+      <button id="snapExport" disabled>Export ⭳</button>
+      <label class="btn" for="snapImport">Import…</label>
+      <input type="file" id="snapImport" class="vh" accept=".z2web,.bin" />
+    </div>
+    <p class="note">Snapshots and SRAM stay in this browser (IndexedDB). Export to keep a copy.</p>
+  </section>
 
-<fieldset>
-  <legend>Movie (QA replay)</legend>
-  <input type="file" id="movieFile" accept=".fm2,.txt" />
-  <button id="movieRewind" disabled>Rewind movie</button>
-  <span id="movieInfo"></span>
-</fieldset>
+  <section class="card" id="netBox">
+    <h2><img data-art="ico-globe.png" alt="" />Online co-op (2 players)</h2>
+    <div class="row">
+      <label>Room <input id="netRoom" size="14" placeholder="letters-digits" /></label>
+      <button id="netHost" disabled>Host (P1)</button>
+      <button id="netJoin" disabled>Join (P2)</button>
+      <button id="netLeave" disabled>Leave</button>
+    </div>
+    <div id="netStatus" class="sub">netplay: checking support…</div>
+    <details>
+      <summary>Connection settings</summary>
+      <div class="row">
+        <label title="Rollback applies your input at once and corrects the other player's when it arrives. Lockstep waits for both. Both players must pick the same mode.">Mode
+          <select id="netMode">
+            <option value="rollback" selected>rollback</option>
+            <option value="lockstep">lockstep</option>
+          </select>
+        </label>
+        <label>Delay
+          <select id="netDelay">
+            <option>0</option><option>1</option><option selected>2</option>
+            <option>3</option><option>4</option><option>6</option><option>8</option>
+          </select>
+        </label>
+      </div>
+      <div class="row"><label>Signal <input id="netSignal" size="26" value="ws://localhost:3536" /></label></div>
+      <div class="row"><label title="STUN/TURN servers, space-separated. Empty or 'none' = same machine or LAN only (fastest). TURN needs username=... credential=... (see README)">ICE
+        <input id="netIce" size="34" placeholder="none (same machine / LAN only)" /></label></div>
+    </details>
+  </section>
 
-<fieldset>
-  <legend>Saves (IndexedDB + files)</legend>
-  <select id="slotSel">
-    <option value="slot0">slot0</option>
-    <option value="slot1">slot1</option>
-    <option value="slot2">slot2</option>
-  </select>
-  <button id="snapSave" disabled>Save snapshot</button>
-  <button id="snapLoad" disabled>Load snapshot</button>
-  <button id="sramSave" disabled>Save SRAM</button>
-  <button id="sramLoad" disabled>Load SRAM</button>
-  <button id="snapExport" disabled>Export snapshot ⭳</button>
-  <input type="file" id="snapImport" accept=".z2web,.bin" />
-</fieldset>
+  <section class="card">
+    <h2><img data-art="ico-film.png" alt="" />Movie replay</h2>
+    <div class="row">
+      <label class="btn" for="movieFile">Load .fm2…</label>
+      <input type="file" id="movieFile" class="vh" accept=".fm2,.txt" />
+      <button id="movieRewind" disabled>Rewind</button>
+    </div>
+    <div id="movieInfo" class="sub"></div>
+    <p class="note">Plays an FCEUX movie back through the game, frame for frame.</p>
+  </section>
+</main>
 
-<fieldset id="netBox">
-  <legend>Online co-op (2 players)</legend>
-  <label title="Rollback applies your input at once and corrects the other player's when it arrives. Lockstep waits for both. Both players must pick the same mode.">Mode
-    <select id="netMode">
-      <option value="rollback" selected>rollback</option>
-      <option value="lockstep">lockstep</option>
-    </select>
-  </label>
-  <label>Signal <input id="netSignal" size="26" value="ws://localhost:3536" /></label>
-  <label>Room <input id="netRoom" size="12" placeholder="letters-digits" /></label>
-  <label>Delay
-    <select id="netDelay">
-      <option>0</option><option>1</option><option selected>2</option>
-      <option>3</option><option>4</option><option>6</option><option>8</option>
-    </select>
-  </label>
-  <label title="STUN/TURN servers, space-separated. Empty or 'none' = same machine or LAN only (fastest). TURN needs username=... credential=... (see README)">ICE
-    <input id="netIce" size="40" placeholder="none (same machine / LAN only)" /></label>
-  <button id="netHost" disabled>Host (P1)</button>
-  <button id="netJoin" disabled>Join (P2)</button>
-  <button id="netLeave" disabled>Leave</button>
-  <div id="netStatus" class="sub">netplay: checking support…</div>
-</fieldset>
+<div class="desk" aria-hidden="true"></div>
 
-<fieldset>
-  <legend>Status</legend>
-  <div id="status">Loading wasm…</div>
-</fieldset>
+<section id="desktop">
+  <h2>Play on your computer</h2>
+  <p class="kicker">Desktop version: Windows, macOS, Linux. Fullscreen, bigger windows, HD packs.</p>
+  <ol>
+    <li>Open the <a href="https://github.com/troyedwardsjr/z2rs/releases/latest" target="_blank" rel="noopener noreferrer">latest release</a>
+      and download the file for your system:
+      <ul>
+        <li>Windows: the file ending in <code>x86_64-pc-windows-msvc.zip</code></li>
+        <li>Mac with Apple silicon (M1 or newer): <code>aarch64-apple-darwin.zip</code></li>
+        <li>Mac with an Intel chip: <code>x86_64-apple-darwin.zip</code></li>
+        <li>Linux: <code>x86_64-unknown-linux-gnu.tar.gz</code></li>
+      </ul></li>
+    <li>Unzip it and open the launcher: <code>z2rs-launcher.exe</code> on Windows,
+      <code>z2rs.app</code> on macOS, <code>z2rs-launcher</code> on Linux.</li>
+    <li>Press <em>Browse…</em> and choose your own Zelda II (USA) <code>.nes</code> file.
+      No ROM comes with the download.</li>
+    <li>Pick your settings and press <em>Play</em>. The launcher remembers them for next time.</li>
+  </ol>
+
+  <h3>The first time you open it</h3>
+  <p class="sub">The builds are not code signed yet, so your system asks before running them.</p>
+  <ul>
+    <li>Windows: if SmartScreen appears, click <em>More info</em>, then <em>Run anyway</em>.</li>
+    <li>macOS: right-click <code>z2rs.app</code> and choose <em>Open</em>. On newer macOS, open
+      System Settings, Privacy &amp; Security, and click <em>Open Anyway</em>. If macOS says the app is
+      damaged, run <code>xattr -dr com.apple.quarantine z2rs.app</code> in Terminal.</li>
+    <li>Linux: if it will not start, run <code>chmod +x z2rs z2rs-launcher</code>. The <em>Browse</em>
+      buttons need the xdg-desktop-portal service, which most desktops already have.</li>
+  </ul>
+
+  <h3>What the launcher sets up</h3>
+  <ul>
+    <li>Window size (1× to 6×) and fullscreen. While playing, <kbd>F11</kbd> or
+      <kbd>Alt</kbd>+<kbd>Enter</kbd> switches fullscreen, and <kbd>Esc</kbd> leaves fullscreen
+      (in a window, <kbd>Esc</kbd> quits).</li>
+    <li>Widescreen: off, 16:10, 16:9 or 21:9 ultrawide, and whether enemies use the wider screen.</li>
+    <li>HD graphics pack: press <em>Open packs folder</em>, unzip the pack into it, then press
+      <em>Refresh</em> and choose it from the list. <em>Custom folder…</em> uses a pack from anywhere else.</li>
+    <li>Players: single player, local co-op on one computer (player 2 uses
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>G</kbd>=A, <kbd>F</kbd>=B,
+      <kbd>T</kbd>=Start, <kbd>R</kbd>=Select, or the second gamepad), or online co-op.
+      For online play one player hosts and the other joins with the same room name, the
+      same ROM and the same widescreen settings.</li>
+  </ul>
+
+  <h3>Other keys in the desktop version</h3>
+  <p class="sub"><kbd>Tab</kbd> fast-forward, <kbd>F5</kbd> save state, <kbd>F7</kbd> load state,
+    <kbd>F6</kbd> or <kbd>1</kbd>–<kbd>0</kbd> pick a save slot, <kbd>P</kbd> pause.
+    You can also drop a <code>.nes</code> file onto the game window, and the game remembers it.
+    Each download includes <code>HOW-TO-PLAY.txt</code> with the full list.</p>
+</section>
 
 <footer id="links">
   <a href="https://x.com/troygentic/status/2101572848506573135" target="_blank" rel="noopener noreferrer">Release article</a>
   <a href="https://discord.gg/buZrPenm6K" target="_blank" rel="noopener noreferrer">Discord (HD pack)</a>
+  <a href="https://github.com/troyedwardsjr/z2rs/releases/latest" target="_blank" rel="noopener noreferrer">Desktop download</a>
   <a href="https://github.com/troyedwardsjr/z2rs" target="_blank" rel="noopener noreferrer">Source code</a>
 </footer>
 
@@ -257,6 +630,7 @@ in-tab (body CRC32 <code>BA322865</code>) and never uploaded anywhere.</p>
     <button type="button" class="b" data-pad="2" tabindex="-1">B</button>
     <button type="button" class="a" data-pad="1" tabindex="-1">A</button>
   </div>
+</div>
 </div>
 
 <script type="module" src="./app.js"></script>
