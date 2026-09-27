@@ -2,3 +2,9 @@
 # `cargo xtask ledger --rebuild` works from the repo root.
 [alias]
 xtask = "run -p xtask --"
+
+# Windows release builds link the C runtime statically, so z2rs.exe and the
+# launcher start on machines without the Visual C++ Redistributable
+# (otherwise Windows reports VCRUNTIME140.dll as missing).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
