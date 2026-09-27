@@ -21,8 +21,9 @@ The game remembers the last ROM it loaded, so after the first time you can
 also start z2rs (z2rs.exe on Windows) directly and it boots straight in. You
 can drop a ROM file onto the game window at any time.
 
-The launcher also sets the window size, fullscreen, widescreen, an HD
-graphics pack folder, and local or online co-op.
+The launcher also sets the window size, fullscreen, widescreen (16:10,
+16:9 or 21:9 ultrawide), an HD graphics pack folder, and local or online
+co-op.
 
 From a terminal:
 

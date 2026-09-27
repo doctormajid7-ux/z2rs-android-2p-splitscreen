@@ -19,7 +19,7 @@ Release announcement: [Moddable Zelda 2 PC / Web port with Online Multiplayer Co
 2. Start the launcher: `z2rs-launcher.exe` on Windows, `z2rs.app` on macOS, `z2rs-launcher` on Linux.
 3. Pick your Zelda II (USA) ROM and press Play.
 
-The launcher also sets the window size, fullscreen, widescreen, an HD pack folder, and local or online co-op. Online co-op uses a public signalling server by default, so two players only need to agree on a room name.
+The launcher also sets the window size, fullscreen, widescreen (16:10, 16:9 or 21:9 ultrawide), an HD pack folder, and local or online co-op. Online co-op uses a public signalling server by default, so two players only need to agree on a room name.
 
 The game remembers the last ROM it loaded, so after the first run you can start `z2rs` directly and it boots straight into the game. Dragging a ROM onto the game window still works. `HOW-TO-PLAY.txt` in the archive lists the controls and where settings and saves are kept.
 

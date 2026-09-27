@@ -10,7 +10,7 @@ The web build runs the same engine as the desktop app, in a tab, with no npm and
 
 | In the page | As a URL parameter |
 |---|---|
-| Screen: Standard, Wide 16:10 (384x240), Wide 16:9 (432x240) | `?widescreen=` or `?wide=`: `off`, `16:10`, `16:9`, or 1 to 16 tiles per side |
+| Screen: Standard, Wide 16:10 (384x240), Wide 16:9 (432x240), Ultrawide 21:9 (560x240) | `?widescreen=` or `?wide=`: `off`, `16:10`, `16:9`, `21:9`, or 1 to 20 tiles per side |
 | Fill left edge checkbox (paints the 8 columns the ROM blanks) | `?clip=0` turns it off |
 | Objects in margins checkbox (side-view enemies and townspeople drawn in the margins) | `?msprites=0` turns it off |
 | Enemies in the margins checkbox (wide gameplay, changes the game) | `?widegame=0` turns it off |

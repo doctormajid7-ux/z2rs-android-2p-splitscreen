@@ -63,7 +63,7 @@ Besides `--rom`, `--movie` and `--config`:
 |---|---|
 | `--scale N` | window size as a multiple of the picture, 1 to 8 |
 | `--fullscreen` | start in fullscreen (`F11` or `Alt+Enter` switches back) |
-| `--widescreen off\|16:10\|16:9\|N` | extra scenery left and right of the NES picture |
+| `--widescreen off\|16:10\|16:9\|21:9\|N` | extra scenery left and right of the NES picture: 16:10 is 384x240, 16:9 is 432x240, 21:9 ultrawide is 560x240, or N tiles per side (0 to 20) |
 | `--coop-local` | two players at this machine |
 | `--coop-host ROOM` / `--coop-join ROOM` | online co-op over WebRTC |
 | `--signal URL` | signalling server (default `ws://127.0.0.1:3536`; the launcher passes `wss://signal.z2rs.com`) |
