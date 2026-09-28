@@ -31,6 +31,15 @@ come from the [upstream project](#the-upstream-project-desktop-and-browser).
 - **Working sound**, and the widescreen, save states, fast-forward, gamepad and
   online co-op features of z2rs are all still there.
 
+## Screenshots
+
+Zelda II running in the Android app.
+
+| | |
+|---|---|
+| ![Zelda II running in the Android app](screenshots/screenshot-1.jpg) | ![Zelda II running in the Android app](screenshots/screenshot-2.jpg) |
+| ![Zelda II running in the Android app](screenshots/screenshot-3.jpg) | ![Zelda II running in the Android app](screenshots/screenshot-4.jpg) |
+
 ## Install
 
 1. Download

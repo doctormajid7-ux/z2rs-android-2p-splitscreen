@@ -39,6 +39,10 @@ assets.bin
 # ignored, this one file is committed on purpose.
 !/dist/*.apk
 
+# Raw phone screenshots dropped in the working tree for the README. The
+# downsized, EXIF-free copies in screenshots/ are the ones that get committed.
+/Screenshot_*.jpg
+
 # Editor / OS noise
 .DS_Store
 *.swp
