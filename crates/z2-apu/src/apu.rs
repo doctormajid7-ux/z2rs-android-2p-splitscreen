@@ -116,15 +116,25 @@ impl Apu {
     }
 
     /// Change the PCM output rate (same range rules as [`Apu::new`]).
-    /// Returns the rate actually selected. Fractional resampler phase is
-    /// preserved, so switching mid-stream does not click beyond the
-    /// unavoidable filter-state transient.
+    /// Returns the rate actually selected.
+    ///
+    /// The resampler's `due` mark is recomputed from the *total* cycle count
+    /// at the new rate, so the mark itself jumps by
+    /// `cycles_total * (new - old) / CPU_HZ`. Re-base `samples_emitted` onto
+    /// the new mark instead of letting the emit loop flush that jump: the
+    /// elapsed cycles were already rendered at the old rate and are not owed
+    /// again — replaying them as a one-off backlog runs the loop with an empty
+    /// accumulator (`0.0 / 0.0` is NaN, and NaN stored in the high-pass state
+    /// silences every later sample), and lowering the rate would stall output
+    /// for as long as the backlog takes to drain. The filter state and the
+    /// voices are kept, so only the samples-per-frame figure changes.
     pub fn set_sample_rate(&mut self, rate: u32) -> u32 {
         if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&rate) || !sample_rate_supported(rate) {
             return self.sample_rate;
         }
         self.sample_rate = rate;
         self.hpf_alpha = hpf_alpha(rate);
+        self.samples_emitted = (self.cycles_total * u64::from(rate)) / CPU_HZ;
         rate
     }
 
@@ -339,7 +349,16 @@ impl Apu {
         let rate = u64::from(self.sample_rate);
         let due = (self.cycles_total * rate) / CPU_HZ;
         while self.samples_emitted < due {
-            let avg = (self.mix_acc / self.mix_count as f64) as f32;
+            // Two samples coming due in the same cycle would find the
+            // accumulator already emptied by the first: `0.0 / 0.0` is NaN,
+            // and NaN fed into the high-pass state (below) would silence the
+            // output permanently. Hold the previous sample instead — a DC
+            // step the filter eats anyway.
+            let avg = if self.mix_count == 0 {
+                self.hpf_prev_in
+            } else {
+                (self.mix_acc / self.mix_count as f64) as f32
+            };
             self.mix_acc = 0.0;
             self.mix_count = 0;
             self.samples_emitted += 1;
