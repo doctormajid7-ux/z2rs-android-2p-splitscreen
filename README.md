@@ -37,8 +37,8 @@ Zelda II running in the Android app.
 
 | | |
 |---|---|
-| ![Zelda II running in the Android app](screenshots/screenshot-1.jpg) | ![Zelda II running in the Android app](screenshots/screenshot-2.jpg) |
-| ![Zelda II running in the Android app](screenshots/screenshot-3.jpg) | ![Zelda II running in the Android app](screenshots/screenshot-4.jpg) |
+| <img src="screenshots/screenshot-1.jpg" width="330" alt="Zelda II running in the Android app"> | <img src="screenshots/screenshot-2.jpg" width="330" alt="Zelda II running in the Android app"> |
+| <img src="screenshots/screenshot-3.jpg" width="330" alt="Zelda II running in the Android app"> | <img src="screenshots/screenshot-4.jpg" width="330" alt="Zelda II running in the Android app"> |
 
 ## Install
 
