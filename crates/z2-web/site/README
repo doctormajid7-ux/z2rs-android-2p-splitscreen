@@ -82,7 +82,11 @@ On a touch screen, player 1 gets an on-screen controller: a d-pad, Select,
 Start, B and A floating over the bottom of the viewport. It appears by itself
 where touch is the main pointer (`(pointer: coarse)` matches), the Touch pad
 button shows and hides it anywhere, and `?touch=1` or `?touch=0` forces it
-either way.
+either way. With the portrait split on (see below), a second controller
+appears in the top half, painted turned through 180°, and its bits go to
+player 2 instead of player 1 — a point on a rotated pad is decoded with the
+coordinates turned back first, so "up" means up for whoever is holding that
+end of the screen.
 
 Fingers are tracked one by one and hit-tested again as they move, so a thumb
 can roll from B onto A, or slide around the d-pad, without lifting. The d-pad
@@ -106,7 +110,7 @@ The "fill left edge" checkbox (`?clip=0` turns it off) paints the 8 columns the 
 
 ### HD graphics packs
 
-HD packs need a bundle built with `--features hd`. The Pack folder picker takes the directory that contains `pack.json`. Make one with `cargo xtask hdpack template --out DIR --scale 2`, which must write outside the repository. The picked files go into wasm as raw bytes. `HdPack::from_files` strips the picker's directory prefix and decodes the PNG sheets in Rust, so nothing is uploaded and JS never touches image data.
+HD packs need a bundle built with `--features hd`. The Pack folder picker takes the directory that contains `pack.json`. A WebView (the Android shell) cannot feed that picker: its file chooser reports bare file names, so the shell offers a folder of its own instead and mounts it at `/_hdp/` (see android/README.md). Make one with `cargo xtask hdpack template --out DIR --scale 2`, which must write outside the repository. The picked files go into wasm as raw bytes. `HdPack::from_files` strips the picker's directory prefix and decodes the PNG sheets in Rust, so nothing is uploaded and JS never touches image data.
 
 The Scale select (`?scale=2`) is the output multiplier, 1 to 4. Loading a pack adopts the pack's own scale unless you picked one, and a pack whose scale does not divide your choice wins. A pack that fails to load is reported in the panel and changes nothing: the tab keeps playing with the art it already had.
 
@@ -119,6 +123,21 @@ The `-` and `+` buttons (`?zoom=3`) change the on-screen size only: CSS pixels p
 ### Local co-op
 
 Tick the "local co-op" checkbox or use `?coop=1`. Player 2 is a second Link that exists in side-view areas only.
+
+### Portrait split (two players, one screen)
+
+Local co-op also switches on the **portrait split**: the frame is presented
+twice, the top copy turned through 180°, so the two players sit at opposite
+ends of a portrait screen and each sees the picture the right way up. The
+canvas doubles in height (256x480 at 1x), the picture leaves the 4:3 cabinet
+and pins itself over the page, and a second on-screen controller appears in
+the top half, painted upside down to face player 2. Nothing about the
+game changes: it is one shared picture shown twice, not two cameras.
+
+The split follows local co-op — an online peer has a screen of their own —
+and is refused outright by `?split=0` or the "Portrait split" checkbox. The
+`✕ 1 player` button in the middle of the right edge turns two-player mode off
+again while the picture is covering the deck.
 
 ### Online co-op
 
@@ -194,7 +213,10 @@ The nine members above are the stable contract. Every control added for widescre
 | `ext.net.confirmedHashes()` | rollback: → JSON `[[frame, "hash"], ...]` for every 15th saved state that no rollback can still change (`hash_state(&[ram, wram, oam, coop_hash])`); `[]` otherwise |
 | `ext.perf.rollback({iterations, depths})` | times one emulated frame, one save, one load and a worst-case rollback tick per depth with `performance.now()` → `{iterations, frame, save, load, tick: {depth: stats}}`, each `{mean, p95, max}` in ms. Leaves the game where it was; refused during a session |
 | `ext.touch.show(on)` / `ext.touch.shown()` | show or hide the on-screen controller → whether it is showing |
-| `ext.touch.mask()` | → the pad byte the on-screen controller contributes right now |
+| `ext.touch.mask()` | → the pad byte player 1's on-screen controller contributes right now |
+| `ext.touch.mask2()` | → the pad byte player 2's controller contributes (0 unless the split is on) |
+| `ext.split.on()` / `ext.split.wanted()` | whether the portrait split is in force / whether it is allowed at all |
+| `ext.split.set(on)` | allow or refuse the split → whether it ended up on (it still needs local co-op) |
 | `ext.trapsetId()` | → 16 hex chars identifying the ported-routine set |
 
 `site/smoke.mjs` checks the nine stable members and `ext` separately, so a change to `ext` never counts as a break of the stable contract.
@@ -217,6 +239,7 @@ In rollback mode `net.status()` adds `mode`, `rttMs`, `rollbacks`, `rollbackFram
 | `?scale=` | HD output multiplier 1 to 4 (above 1 needs an `hd` bundle) |
 | `?zoom=` | on-screen CSS pixels per NES pixel, 1 to 4 |
 | `?coop=1` | start with local two-player co-op on |
+| `?split=0` | refuse the portrait two-player split (it is on by default alongside local co-op) |
 | `?touch=1` / `?touch=0` | force the on-screen controller on or off (the default is on where touch is the main pointer) |
 | `?net=` | `rollback` (default) \| `lockstep` for the netplay Mode select |
 | `?signal=`, `?room=`, `?ice=`, `?delay=` | prefill the netplay panel (nothing connects by itself) |

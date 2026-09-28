@@ -222,6 +222,8 @@
 
   .rom-warn { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px;
     background: rgba(255, 196, 80, 0.1); border: 1px solid rgba(255, 196, 80, 0.45); color: #f6e2b6; }
+  /* A cartridge is in: same box, no longer a request. */
+  .rom-warn.ok { background: rgba(96, 220, 132, 0.1); border-color: rgba(96, 220, 132, 0.45); color: #d9f3dd; }
   #status {
     white-space: pre-wrap; overflow-wrap: anywhere; min-height: 4.5em; margin: 0;
     font: 19px/1.1 var(--term); color: #c9f7c9;
@@ -286,58 +288,99 @@
   #room.fs #drop:hover #fsExit, #room.fs #fsExit:focus-visible { opacity: 1; }
   @media (pointer: coarse) { #room.fs #fsExit { opacity: 0.8; } }
 
-  /* On-screen controller for touch devices (app.js "touch gamepad"). It floats
-     over the bottom of the viewport so it stays under the thumbs while the page
-     scrolls; only the controls take touches, the gap between them does not. */
-  #touchpad {
+  /* --- portrait two-player split -------------------------------------------
+     The cabinet is drawn around a 4:3 glass, and the split's picture is
+     1:1.875 — letterboxed into that glass it would be a sliver. So with the
+     split on the screen leaves the cabinet and pins itself over the page,
+     exactly as fullscreen does: each player then has half of a portrait
+     picture under their own half of the controller. The deck below is
+     covered by the picture, so the split carries its own way out. */
+  #splitExit { display: none; }
+  #room.split2p #drop {
+    position: fixed; inset: 0; width: auto; height: auto; z-index: 15;
+    border-radius: 0; background: #000; box-shadow: none;
+  }
+  /* Middle of the right edge: between the two halves, where neither player's
+     thumb rests. */
+  #room.split2p #splitExit {
+    display: inline-flex; position: absolute; top: 50%; right: 8px;
+    transform: translateY(-50%); z-index: 4; cursor: pointer;
+    font: 11px var(--pixel); padding: 8px 10px; color: #fff;
+    background: rgba(20, 22, 50, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 4px;
+  }
+
+  /* On-screen controllers for touch devices (app.js "touch gamepad"). They
+     float over the viewport so they stay under the thumbs while the page
+     scrolls; only the controls take touches, the gap between them does not.
+     `.tp-pad` is the shared shape: #touchpad is player 1 at the bottom, and
+     #touchpad2 is player 2 in the top half while the portrait two-player
+     split is on. */
+  /* How far the controller is held off its own edge of the screen, set by the
+     Pad ↑ / Pad ↓ buttons in the Player card. A share of the viewport rather
+     than pixels, so a lift means the same grip in portrait and landscape; the
+     pads move together, which is what makes a phone case or a rounded corner
+     stop eating the d-pad. */
+  :root { --pad-shift: 0vh; }
+  #touchpad { transform: translateY(calc(-1 * var(--pad-shift))); }
+  .tp-pad {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     display: flex; justify-content: space-between; align-items: flex-end;
     padding: 0 max(14px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
     pointer-events: none;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
-  #touchpad[hidden] { display: none; }
-  #touchpad .tp-dpad, #touchpad button { pointer-events: auto; touch-action: none; }
-  #touchpad .tp-dpad {
+  .tp-pad[hidden] { display: none; }
+  /* Player 2 sits at the other end of the screen, so their half of the
+     picture — and their controller — is turned through 180°. The rotation is
+     paint-only: hit-testing follows the transform, and app.js turns the
+     coordinates back before it decodes a d-pad direction. */
+  /* Player 2's pad is painted turned through 180°, so its lift is applied in
+     that rotated frame: `translateY(-s)` before the rotation ends up as `s`
+     down the screen, i.e. the same distance away from the edge the player is
+     sitting at. */
+  #touchpad2 { top: 0; bottom: auto; transform: rotate(180deg) translateY(calc(-1 * var(--pad-shift))); }
+  .tp-pad .tp-dpad, .tp-pad button { pointer-events: auto; touch-action: none; }
+  .tp-pad .tp-dpad {
     position: relative; width: 148px; height: 148px; border-radius: 50%;
     background: rgba(36, 36, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.22);
   }
-  #touchpad .tp-dpad i {
+  .tp-pad .tp-dpad i {
     position: absolute; width: 44px; height: 44px; border-radius: 9px;
     background: rgba(255, 255, 255, 0.16); pointer-events: none;
   }
-  #touchpad .tp-dpad i.u { left: 52px; top: 8px; }
-  #touchpad .tp-dpad i.d { left: 52px; bottom: 8px; }
-  #touchpad .tp-dpad i.l { left: 8px; top: 52px; }
-  #touchpad .tp-dpad i.r { right: 8px; top: 52px; }
-  #touchpad .tp-dpad.up i.u, #touchpad .tp-dpad.down i.d,
-  #touchpad .tp-dpad.left i.l, #touchpad .tp-dpad.right i.r { background: rgba(124, 204, 255, 0.75); }
-  #touchpad button {
+  .tp-pad .tp-dpad i.u { left: 52px; top: 8px; }
+  .tp-pad .tp-dpad i.d { left: 52px; bottom: 8px; }
+  .tp-pad .tp-dpad i.l { left: 8px; top: 52px; }
+  .tp-pad .tp-dpad i.r { right: 8px; top: 52px; }
+  .tp-pad .tp-dpad.up i.u, .tp-pad .tp-dpad.down i.d,
+  .tp-pad .tp-dpad.left i.l, .tp-pad .tp-dpad.right i.r { background: rgba(124, 204, 255, 0.75); }
+  .tp-pad button {
     margin: 0; padding: 0; font: 600 15px system-ui, sans-serif; color: rgba(255, 255, 255, 0.9);
     background: rgba(36, 36, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: none;
   }
-  #touchpad button.on { background: rgba(124, 204, 255, 0.6); }
+  .tp-pad button.on { background: rgba(124, 204, 255, 0.6); }
   /* The pad halves keep their size: the i-tiles and A/B are placed in px. */
-  #touchpad .tp-dpad, #touchpad .tp-ab { flex: 0 0 auto; }
-  #touchpad .tp-mid { display: flex; gap: 14px; margin: 0 18px 4px; }
-  #touchpad .tp-mid button { width: 62px; height: 30px; border-radius: 15px; font-size: 11px; letter-spacing: 0.04em; }
-  #touchpad .tp-ab { position: relative; width: 150px; height: 124px; }
-  #touchpad .tp-ab button { position: absolute; width: 68px; height: 68px; border-radius: 50%; }
-  #touchpad .tp-ab .b { left: 0; bottom: 0; }
-  #touchpad .tp-ab .a { right: 0; top: 0; }
+  .tp-pad .tp-dpad, .tp-pad .tp-ab { flex: 0 0 auto; }
+  .tp-pad .tp-mid { display: flex; gap: 14px; margin: 0 18px 4px; }
+  .tp-pad .tp-mid button { width: 62px; height: 30px; border-radius: 15px; font-size: 11px; letter-spacing: 0.04em; }
+  .tp-pad .tp-ab { position: relative; width: 150px; height: 124px; }
+  .tp-pad .tp-ab button { position: absolute; width: 68px; height: 68px; border-radius: 50%; }
+  .tp-pad .tp-ab .b { left: 0; bottom: 0; }
+  .tp-pad .tp-ab .a { right: 0; top: 0; }
   /* Room to scroll the rest of the page out from under the controller. A spacer
      rather than a class on the body element: a hosting framework may own the
      body, and nothing here may touch what it renders. */
-  #touchSpacer { height: 190px; }
+  #touchSpacer { height: calc(190px + var(--pad-shift)); }
   /* A phone in portrait has no room for Select/Start between the pads: they
      drop to a row of their own underneath, centred, and the pads move up. */
   @media (max-width: 480px) {
-    #touchpad { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
-    #touchpad .tp-mid {
+    .tp-pad { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+    .tp-pad .tp-mid {
       position: absolute; left: 50%; transform: translateX(-50%); margin: 0;
       bottom: calc(14px + env(safe-area-inset-bottom));
     }
-    #touchSpacer { height: 240px; }
+    #touchSpacer { height: calc(240px + var(--pad-shift)); }
   }
   #touchSpacer[hidden] { display: none; }
 
@@ -387,6 +430,7 @@
       <input type="file" id="romFile" class="vh" accept=".nes,.bin" />
     </div>
     <button type="button" id="fsExit" title="Leave fullscreen (Esc)">✕ Exit fullscreen</button>
+    <button type="button" id="splitExit" title="Back to one player">✕ 1 player</button>
   </div>
   <span id="led"></span>
   <span class="badge bits">8-BIT GOODNESS</span>
@@ -417,21 +461,24 @@
   </section>
 
   <section class="card">
+    <h2><img data-art="ico-heart.png" alt="" />Status</h2>
+    <pre id="status">Loading wasm…</pre>
+    <div class="status-art"><img data-art="ico-link.png" alt="" /><img data-art="ico-castle.png" alt="" /></div>
+  </section>
+
+  <section class="card">
     <h2><img data-art="ico-link.png" alt="" />Player</h2>
     <div class="row">
       <button id="audioBtn" disabled>Enable audio</button>
       <button id="pauseBtn" disabled>Pause</button>
-      <button id="fsBtn" title="Fullscreen (F11, or double-click the picture)">Fullscreen</button>
+      <button id="fsBtn" title="Fullscreen (F11)">Fullscreen</button>
       <button id="touchBtn" title="On-screen controller for touch screens (player 1)">Touch pad</button>
+      <button id="padUp" title="Move the on-screen controller up, away from the edge">Pad ↑</button>
+      <button id="padDown" title="Move the on-screen controller down, toward the edge">Pad ↓</button>
     </div>
     <p><label><input type="checkbox" id="coopChk" /> Local co-op (2 players on this keyboard)</label></p>
+    <p><label><input type="checkbox" id="splitChk" checked /> Portrait split (the screen is shown twice, the top copy upside down, so the two players sit at opposite ends)</label></p>
     <span class="hidden-controls"><button id="zoomOut" tabindex="-1">−</button><button id="zoomIn" tabindex="-1">+</button></span>
-  </section>
-
-  <section class="card">
-    <h2><img data-art="ico-heart.png" alt="" />Status</h2>
-    <pre id="status">Loading wasm…</pre>
-    <div class="status-art"><img data-art="ico-link.png" alt="" /><img data-art="ico-castle.png" alt="" /></div>
   </section>
 
   <section class="card wide">
@@ -464,7 +511,7 @@
   <section class="card" id="hdBox">
     <h2><img data-art="ico-hd.png" alt="" />HD graphics pack</h2>
     <div class="row">
-      <label class="btn" for="hdDir">Pack folder…</label>
+      <label class="btn" id="hdDirLabel" for="hdDir">Pack folder…</label>
       <input type="file" id="hdDir" class="vh" webkitdirectory directory multiple />
       <label>Scale
         <select id="hdScale">
@@ -475,7 +522,10 @@
         </select>
       </label>
     </div>
-    <div class="row"><button id="hdClear" disabled>Use original art</button></div>
+    <div class="row">
+      <button id="hdDevice" hidden title="Pick the folder that holds pack.json">Pack folder on this device…</button>
+      <button id="hdClear" disabled>Use original art</button>
+    </div>
     <div id="hdStatus" class="sub">no pack: original art at 1×.</div>
     <details>
       <summary>About packs</summary>
@@ -617,11 +667,26 @@
   <a href="https://github.com/troyedwardsjr/z2rs" target="_blank" rel="noopener noreferrer">Source code</a>
 </footer>
 
-<!-- On-screen controller (player 1). Hidden unless the device has a touch
-     screen as its main pointer, the Touch pad button is pressed, or ?touch=1. -->
+<!-- On-screen controllers. #touchpad (player 1) and #touchpad2 (player 2) are
+     hidden unless the device has a touch screen as its main pointer, the Touch
+     pad button is pressed, or ?touch=1. Player 2's only appears while the
+     portrait two-player split is on: it fills the top half of the screen,
+     painted turned through 180° so it reads upright for the player at that
+     end. -->
 <div id="touchSpacer" hidden></div>
-<div id="touchpad" hidden aria-hidden="true">
+<div id="touchpad" class="tp-pad" hidden aria-hidden="true">
   <div class="tp-dpad" id="tpDpad"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i></div>
+  <div class="tp-mid">
+    <button type="button" data-pad="4" tabindex="-1">SELECT</button>
+    <button type="button" data-pad="8" tabindex="-1">START</button>
+  </div>
+  <div class="tp-ab">
+    <button type="button" class="b" data-pad="2" tabindex="-1">B</button>
+    <button type="button" class="a" data-pad="1" tabindex="-1">A</button>
+  </div>
+</div>
+<div id="touchpad2" class="tp-pad" hidden aria-hidden="true">
+  <div class="tp-dpad" id="tpDpad2"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i></div>
   <div class="tp-mid">
     <button type="button" data-pad="4" tabindex="-1">SELECT</button>
     <button type="button" data-pad="8" tabindex="-1">START</button>

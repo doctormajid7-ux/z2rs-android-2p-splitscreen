@@ -295,6 +295,12 @@ pub struct WebEmu {
     /// Two-Link co-op requested. Re-applied after every ROM load, so the flag
     /// cannot go stale when a second ROM is dropped into the page.
     coop: bool,
+    /// Portrait two-player split requested: the frame handed to JS is twice
+    /// as tall, the upper copy turned through 180°, so the two players at
+    /// opposite ends of a portrait screen each see it upright. Display only —
+    /// it never reaches the game, a golden frame or a netplay identity. The
+    /// page turns it on with local co-op (see [`WebEmu::split_2p_enable`]).
+    split_2p: bool,
     /// Wide gameplay requested: while widescreen is on, enemies spawn and
     /// live in the margins ([`Game::set_wide_gameplay`] with the widescreen
     /// margin). Default on; it changes gameplay, so it is part of the netplay
@@ -598,6 +604,7 @@ impl WebEmu {
             fill_right_clip: true,
             margin_sprites: true,
             coop: false,
+            split_2p: false,
             wide_gameplay: true,
             trapset_id: 0,
             trapset_base: 0,
@@ -735,6 +742,16 @@ impl WebEmu {
     /// a scale above 1 in a `hd` build — the `z2-render` presenter.
     pub fn render_frame(&mut self) -> Result<(), String> {
         need_game(&self.game).map_err(|e| e.to_string())?;
+        self.render_single_frame()?;
+        self.apply_split_2p();
+        Ok(())
+    }
+
+    /// Compose exactly one frame into [`WebEmu::rgba`], portrait split aside.
+    ///
+    /// Every path resizes the buffer to precisely one frame first, which is
+    /// what lets [`WebEmu::apply_split_2p`] run unconditionally after it.
+    fn render_single_frame(&mut self) -> Result<(), String> {
         #[cfg(feature = "hd")]
         if self.hd_active() {
             return self.render_hd();
@@ -782,13 +799,12 @@ impl WebEmu {
         z2_ppu::wide_width(self.wide_tiles)
     }
 
-    /// Presented height in pixels: 240 times the HD output scale.
+    /// Presented height in pixels: 240 times the HD output scale, and twice
+    /// that again while the portrait two-player split is on (see
+    /// [`WebEmu::split_2p_enable`]). JS sizes the canvas from this, so the
+    /// doubled frame needs no special case on the page.
     pub fn frame_height(&self) -> usize {
-        #[cfg(feature = "hd")]
-        if let Some(p) = self.hd.presenter.as_ref() {
-            return p.height();
-        }
-        FRAME_H
+        self.single_height() * z2_ppu::height_multiplier(self.split_2p)
     }
 
     /// NES-pixel width of the presented frame, ignoring the HD scale
@@ -799,9 +815,10 @@ impl WebEmu {
         z2_ppu::wide_width(self.wide_tiles)
     }
 
-    /// NES-pixel height of the presented frame, ignoring the HD scale.
+    /// NES-pixel height of the presented frame, ignoring the HD scale. The
+    /// portrait split counts, so the page's `aspect-ratio` follows it.
     pub fn logical_height(&self) -> usize {
-        FRAME_H
+        FRAME_H * z2_ppu::height_multiplier(self.split_2p)
     }
 
     /// Output multiplier actually in force (1 without an HD pack, and always
@@ -1128,6 +1145,24 @@ impl WebEmu {
     /// Whether co-op is requested.
     pub fn coop_enabled(&self) -> bool {
         self.coop
+    }
+
+    /// Ask for (or refuse) the portrait two-player split. From the next
+    /// [`WebEmu::render_frame`] on, the frame is twice as tall with its upper
+    /// copy turned through 180°, and [`WebEmu::frame_height`] reports that.
+    /// Display only; it changes no game state, so nothing that hashes the
+    /// machine can see it.
+    pub fn split_2p_enable(&mut self, on: bool) -> Result<(), String> {
+        if self.split_2p == on {
+            return Ok(());
+        }
+        self.split_2p = on;
+        self.sync_present()
+    }
+
+    /// Whether the portrait two-player split is on.
+    pub fn split_2p_enabled(&self) -> bool {
+        self.split_2p
     }
 
     /// Co-op status as JSON (`null` when co-op is off).
@@ -1472,6 +1507,39 @@ impl WebEmu {
             return true;
         }
         false
+    }
+
+    /// Height of the composed frame before the portrait split: 240, or the
+    /// HD pack's own output height.
+    fn single_height(&self) -> usize {
+        #[cfg(feature = "hd")]
+        if let Some(p) = self.hd.presenter.as_ref() {
+            return p.height();
+        }
+        FRAME_H
+    }
+
+    /// Turn the freshly composed frame into the portrait split when it is on:
+    /// the buffer grows to twice its height and its upper half becomes that
+    /// frame rotated through 180°, which is what makes it upright for the
+    /// player sitting at the other end of the screen. Skipped entirely when
+    /// the split is off, so a single-player session never pays for a copy.
+    fn apply_split_2p(&mut self) {
+        if !self.split_2p {
+            return;
+        }
+        let w = self.frame_width();
+        let h = self.single_height();
+        let single = w * h * 4;
+        debug_assert_eq!(
+            self.rgba.len(),
+            single,
+            "render_single_frame must leave exactly one frame behind"
+        );
+        if self.rgba.len() != single {
+            return;
+        }
+        z2_ppu::duplicate_rotated_in_place(&mut self.rgba, w, h);
     }
 
     /// Arm/disarm the PPU render record and resize the RGBA buffer to the
@@ -2505,6 +2573,57 @@ mod tests {
         assert_eq!(&rgba[..4], &indexed_to_rgba(0));
     }
 
+    /// The portrait split doubles what the page reads, keeps the picture
+    /// itself untouched in the lower half, and goes away cleanly when the
+    /// page turns it off again (which is what un-ticking co-op does).
+    #[test]
+    fn portrait_split_doubles_the_frame_and_leaves_the_picture_alone() {
+        let mut emu = booted();
+        assert!(!emu.split_2p_enabled(), "off until someone asks");
+
+        emu.split_2p_enable(true).expect("split on");
+        assert!(emu.split_2p_enabled());
+        assert_eq!(
+            (emu.frame_width(), emu.frame_height()),
+            (FRAME_W, FRAME_H * 2),
+            "the page sizes the canvas from this"
+        );
+        assert_eq!(emu.logical_height(), FRAME_H * 2, "aspect ratio follows");
+        assert_eq!(emu.logical_width(), FRAME_W, "never wider, only taller");
+
+        emu.step_frames(0, 2).expect("step");
+        emu.render_frame().expect("render");
+        let single = emu.frame_width() * FRAME_H * 4;
+        assert_eq!(emu.frame_len(), single * 2, "one frame, shown twice");
+
+        let split = emu.frame_rgba();
+        let (w, h) = (emu.frame_width(), FRAME_H);
+        for y in 0..h {
+            for x in 0..w {
+                let up = ((h - 1 - y) * w + (w - 1 - x)) * 4;
+                let down = single + ((h - 1 - y) * w + (w - 1 - x)) * 4;
+                assert_eq!(
+                    split[up..up + 4],
+                    split[down..down + 4],
+                    "upper pixel ({x},{y}) faces the other way"
+                );
+            }
+        }
+        let lower = split[single..].to_vec();
+        drop(split);
+
+        // Off again: the very same picture, at the very same size as before.
+        emu.split_2p_enable(false).expect("split off");
+        assert_eq!((emu.frame_width(), emu.frame_height()), (FRAME_W, FRAME_H));
+        emu.render_frame().expect("render");
+        assert_eq!(emu.frame_len(), single);
+        assert_eq!(
+            emu.frame_rgba(),
+            lower,
+            "the split changed no pixel of the picture itself"
+        );
+    }
+
     #[test]
     fn snapshot_roundtrip_restores_memory_images() {
         let mut emu = booted();
@@ -2650,6 +2769,30 @@ mod tests {
             loudest = loudest.max(swing(&emu.take_audio_f32()));
         }
         assert!(loudest > 0.05, "title music swing {loudest}");
+    }
+
+    /// The page turns audio on *after* the cartridge has been running — that
+    /// is what a phone does (boot with the ROM in, first touch on the pad
+    /// enables sound) — so switching the synth to the context's rate mid-game
+    /// must keep the music audible. A silent switch is exactly the "no sound
+    /// until I re-pick the ROM file" bug: picking the file runs `load_rom`,
+    /// which rebuilds the APU at the already-selected rate.
+    #[test]
+    fn title_music_survives_a_mid_game_rate_switch() {
+        let Some(file) = rom_file("title_music_survives_a_mid_game_rate_switch") else {
+            return;
+        };
+        let mut emu = WebEmu::new();
+        emu.load_rom(&file).expect("ROM loads");
+        emu.step_frames(0, 120).unwrap();
+        assert_eq!(emu.set_audio_rate(48_000), 48_000);
+        emu.take_audio_f32(); // the switch clears the fifo
+        let mut loudest = 0.0f32;
+        for _ in 0..10 {
+            emu.step_frames(0, 60).unwrap();
+            loudest = loudest.max(swing(&emu.take_audio_f32()));
+        }
+        assert!(loudest > 0.05, "48 kHz switch went silent: swing {loudest}");
     }
 
     #[test]

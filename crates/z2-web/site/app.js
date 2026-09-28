@@ -118,6 +118,12 @@ let paused = false;
 let romLoadT0 = 0;
 let firstFrameLogged = false;
 let coopOn = false;      // local two-player co-op
+// Portrait two-player split: the frame is presented twice, the upper copy
+// turned through 180°, so the two players sit at opposite ends of a portrait
+// screen and each sees it the right way up. It follows local co-op (an online
+// peer has a screen of their own), and `?split=0` or the checkbox refuses it.
+let splitWanted = true;
+let splitOn = false;      // what the wasm side is actually doing right now
 let netActive = false;   // an online session exists
 let netLastT = 0;        // performance.now() of the previous net tick
 // QA only (`z2.ext.net.manual`): the rAF loop stops pumping the session so a
@@ -170,6 +176,7 @@ async function boot() {
   emu = new WebEmu();
   publishZ2();
   applyUrlParams();
+  loadShellRom(); // no-op unless this is the Android shell
   setStatus();
   $('pauseBtn').disabled = true;
   $('netStatus').textContent = netStatusLine(JSON.parse(emu.net_state()));
@@ -256,6 +263,13 @@ function applyUrlParams() {
   const delay = q.get('delay');
   if (delay !== null && [...$('netDelay').options].some((o) => o.value === delay)) $('netDelay').value = delay;
   syncNetMode();
+  // `?split=0` opts out of the portrait two-player split (default on, and it
+  // only ever acts alongside local co-op). Read before `?coop=1` so a single
+  // URL can arrive with co-op on and the split refused.
+  const sp = q.get('split');
+  if (sp !== null) splitWanted = !(sp === '0' || sp === 'false');
+  $('splitChk').checked = splitWanted;
+  applySplit();
   const coop = q.get('coop');
   if (coop === '1' || coop === 'true') setCoop(true);
 }
@@ -398,11 +412,23 @@ function publishZ2() {
         step: (pad = null, max = 1) =>
           emu.net_step(pad === null || pad === undefined ? pollInput() : pad >>> 0, max >>> 0),
       },
-      // On-screen controller: show/hide it, and read the pad byte it contributes.
+      // On-screen controller: show/hide it, and read the pad byte it
+      // contributes. `mask2` is player 2's, which only exists while the split
+      // is on.
       touch: {
-        show: (on) => { showTouchPad(!!on); return !touchPad.hidden; },
-        shown: () => !touchPad.hidden,
+        show: (on) => { showTouchPad(!!on); return !pad1.root.hidden; },
+        shown: () => !pad1.root.hidden,
         mask: () => touchMask(),
+        mask2: () => pad2.mask(),
+        // How far the controllers are lifted off their edges, in vh.
+        padShift: (vh) => applyPadShift(Number(vh)),
+        padShiftVh: () => padShift,
+      },
+      // The portrait two-player split (wasm flag, canvas height, pad 2).
+      split: {
+        wanted: () => splitWanted,
+        on: () => splitOn,
+        set: (on) => { splitWanted = !!on; $('splitChk').checked = splitWanted; applySplit(); return splitOn; },
       },
       trapsetId: () => emu.trapset_id_hex(),
       // Rollback cost probes, timed here with performance.now(). Leaves the
@@ -537,86 +563,115 @@ function gamepadMask(player = 0) {
   return gp ? padBits(gp) : 0;
 }
 
-const pollInput = () => keyboardMask() | gamepadMask(0) | touchMask();
-const pollInputP2 = () => keyboardMaskP2() | gamepadMask(1);
+const pollInput = () => keyboardMask() | gamepadMask(0) | pad1.mask();
+const pollInputP2 = () => keyboardMaskP2() | gamepadMask(1) | pad2.mask();
 
-// --- touch gamepad (on-screen controller, player 1) ---------------------------
-// #touchpad is a d-pad, Select/Start and B/A floating over the bottom of the
-// viewport. Every finger is tracked by pointer id and re-hit-tested as it moves,
-// so a thumb can roll from B onto A or slide round the d-pad without lifting.
+// --- touch gamepads (on-screen controllers) ----------------------------------
+// One controller per player. #touchpad is player 1's: a d-pad, Select/Start
+// and B/A floating over the bottom of the viewport. #touchpad2 is player 2's,
+// and only exists while the portrait two-player split is on — it fills the
+// TOP half of the screen, painted turned through 180°, which is what makes it
+// upright for the player sitting at that end of the device.
+// Every finger is tracked by pointer id and re-hit-tested as it moves, so a
+// thumb can roll from B onto A or slide round the d-pad without lifting.
 // A finger that started on the d-pad keeps steering even after it drifts off
-// the disc. The pad bits are OR-ed into pollInput(), so the overlay drives
-// exactly what the keyboard drives: local play, co-op player 1 and netplay.
+// the disc. The bits are OR-ed into pollInput()/pollInputP2(), so the overlays
+// drive exactly what the keyboard drives: local play, co-op and netplay.
 const TOUCH_UP = 1 << 4, TOUCH_DOWN = 1 << 5, TOUCH_LEFT = 1 << 6, TOUCH_RIGHT = 1 << 7;
 const TOUCH_DEAD = 0.2; // d-pad dead zone, as a fraction of its radius
 // Eight ways, clockwise from east (atan2 has +y pointing down the screen).
 const TOUCH_OCTANTS = [TOUCH_RIGHT, TOUCH_RIGHT | TOUCH_DOWN, TOUCH_DOWN, TOUCH_DOWN | TOUCH_LEFT,
   TOUCH_LEFT, TOUCH_LEFT | TOUCH_UP, TOUCH_UP, TOUCH_UP | TOUCH_RIGHT];
-const touchPad = $('touchpad');
-const touchDpad = $('tpDpad');
-const touchPointers = new Map(); // pointerId -> { bits, dpad }
 
+function makeTouchPad(root, { rotated = false, liftsAudio = false } = {}) {
+  const dpad = root.querySelector('.tp-dpad');
+  const pointers = new Map(); // pointerId -> { bits, dpad }
+
+  function mask() {
+    let m = 0;
+    for (const p of pointers.values()) m |= p.bits;
+    return m;
+  }
+
+  function dpadBits(x, y) {
+    const r = dpad.getBoundingClientRect();
+    let dx = (x - (r.left + r.width / 2)) / (r.width / 2);
+    let dy = (y - (r.top + r.height / 2)) / (r.height / 2);
+    // Player 2's pad is painted turned through 180°, so the direction shown
+    // at (dx, dy) is the one the player means inverted. Turn it back before
+    // the octant lookup; the bounding box is unchanged by a half turn.
+    if (rotated) { dx = -dx; dy = -dy; }
+    if (Math.hypot(dx, dy) < TOUCH_DEAD) return 0;
+    const oct = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+    return TOUCH_OCTANTS[(oct + 8) % 8];
+  }
+
+  function bitsAt(p, x, y) {
+    if (p.dpad) return dpadBits(x, y);
+    // Hit-testing follows CSS transforms, so a rotated pad answers for the
+    // element the finger is actually on.
+    const el = document.elementFromPoint(x, y);
+    const btn = el && el.closest && root.contains(el) ? el.closest('[data-pad]') : null;
+    return btn ? Number(btn.dataset.pad) : 0;
+  }
+
+  function paint() {
+    const m = mask();
+    for (const b of root.querySelectorAll('[data-pad]')) b.classList.toggle('on', (m & Number(b.dataset.pad)) !== 0);
+    dpad.classList.toggle('up', (m & TOUCH_UP) !== 0);
+    dpad.classList.toggle('down', (m & TOUCH_DOWN) !== 0);
+    dpad.classList.toggle('left', (m & TOUCH_LEFT) !== 0);
+    dpad.classList.toggle('right', (m & TOUCH_RIGHT) !== 0);
+  }
+
+  function release() {
+    pointers.clear();
+    paint();
+  }
+
+  root.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); // no focus, no text selection, no long-press menu
+    const p = { bits: 0, dpad: !!(e.target.closest && e.target.closest('.tp-dpad')) };
+    p.bits = bitsAt(p, e.clientX, e.clientY);
+    pointers.set(e.pointerId, p);
+    // Keep getting this finger's moves after it slides off the control.
+    try { e.target.setPointerCapture(e.pointerId); } catch { /* synthetic pointer: nothing to capture */ }
+    paint();
+  });
+  root.addEventListener('pointermove', (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const bits = bitsAt(p, e.clientX, e.clientY);
+    if (bits !== p.bits) { p.bits = bits; paint(); }
+  });
+  for (const type of ['pointerup', 'pointercancel']) {
+    root.addEventListener(type, (e) => {
+      if (!pointers.delete(e.pointerId)) return;
+      paint();
+      // Lifting a finger is a user gesture (pressing one down is not, for
+      // touch), so this is where a phone gets its sound without hunting for
+      // the button.
+      if (liftsAudio && type === 'pointerup' && !actx && !$('audioBtn').disabled) $('audioBtn').click();
+    });
+  }
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  return { root, mask, release, paint };
+}
+
+const pad1 = makeTouchPad($('touchpad'), { liftsAudio: true });
+const pad2 = makeTouchPad($('touchpad2'), { rotated: true, liftsAudio: true });
+
+// What the on-screen controller contributes to player 1 (the QA surface
+// `z2.ext.touch.mask()`); pad2's byte goes to player 2 only.
 function touchMask() {
-  let m = 0;
-  for (const p of touchPointers.values()) m |= p.bits;
-  return m;
-}
-
-function touchDpadBits(x, y) {
-  const r = touchDpad.getBoundingClientRect();
-  const dx = (x - (r.left + r.width / 2)) / (r.width / 2);
-  const dy = (y - (r.top + r.height / 2)) / (r.height / 2);
-  if (Math.hypot(dx, dy) < TOUCH_DEAD) return 0;
-  const oct = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
-  return TOUCH_OCTANTS[(oct + 8) % 8];
-}
-
-function touchBitsAt(p, x, y) {
-  if (p.dpad) return touchDpadBits(x, y);
-  const el = document.elementFromPoint(x, y);
-  const btn = el && el.closest ? el.closest('#touchpad [data-pad]') : null;
-  return btn ? Number(btn.dataset.pad) : 0;
-}
-
-function touchPaint() {
-  const m = touchMask();
-  for (const b of touchPad.querySelectorAll('[data-pad]')) b.classList.toggle('on', (m & Number(b.dataset.pad)) !== 0);
-  touchDpad.classList.toggle('up', (m & TOUCH_UP) !== 0);
-  touchDpad.classList.toggle('down', (m & TOUCH_DOWN) !== 0);
-  touchDpad.classList.toggle('left', (m & TOUCH_LEFT) !== 0);
-  touchDpad.classList.toggle('right', (m & TOUCH_RIGHT) !== 0);
+  return pad1.mask();
 }
 
 function touchRelease() {
-  touchPointers.clear();
-  touchPaint();
+  pad1.release();
+  pad2.release();
 }
-
-touchPad.addEventListener('pointerdown', (e) => {
-  e.preventDefault(); // no focus, no text selection, no long-press menu
-  const p = { bits: 0, dpad: !!(e.target.closest && e.target.closest('#tpDpad')) };
-  p.bits = touchBitsAt(p, e.clientX, e.clientY);
-  touchPointers.set(e.pointerId, p);
-  // Keep getting this finger's moves after it slides off the control.
-  try { e.target.setPointerCapture(e.pointerId); } catch { /* synthetic pointer: nothing to capture */ }
-  touchPaint();
-});
-touchPad.addEventListener('pointermove', (e) => {
-  const p = touchPointers.get(e.pointerId);
-  if (!p) return;
-  const bits = touchBitsAt(p, e.clientX, e.clientY);
-  if (bits !== p.bits) { p.bits = bits; touchPaint(); }
-});
-for (const type of ['pointerup', 'pointercancel']) {
-  touchPad.addEventListener(type, (e) => {
-    if (!touchPointers.delete(e.pointerId)) return;
-    touchPaint();
-    // Lifting a finger is a user gesture (pressing one down is not, for touch),
-    // so this is where a phone gets its sound without hunting for the button.
-    if (type === 'pointerup' && !actx && !$('audioBtn').disabled) $('audioBtn').click();
-  });
-}
-touchPad.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Shown by default where touch is the main way in; `?touch=1` / `?touch=0` and
 // the Touch pad button override that either way.
@@ -628,13 +683,45 @@ function touchWanted() {
 }
 
 function showTouchPad(on) {
-  touchPad.hidden = !on;
+  pad1.root.hidden = !on;
   $('touchSpacer').hidden = !on;
+  // Player 2's controller belongs to the portrait split: it only appears
+  // while both the touch pad and the split are in play.
+  pad2.root.hidden = !(on && splitOn);
   $('touchBtn').textContent = on ? 'Hide touch pad' : 'Touch pad';
   if (!on) touchRelease();
 }
-$('touchBtn').addEventListener('click', () => showTouchPad(touchPad.hidden));
+$('touchBtn').addEventListener('click', () => showTouchPad(pad1.root.hidden));
 showTouchPad(touchWanted());
+
+// --- lifting the controller off the edge ------------------------------------
+// The pads sit against the screen edges, which is where a thumb rests — but
+// not every phone agrees: a case, a rounded corner, a gesture bar or a
+// different grip can put the d-pad somewhere useless. Two buttons move both
+// pads at once, each away from its own edge (player 2's pad is painted upside
+// down, so the same `--pad-shift` lands the same distance from the top). The
+// offset is a share of the viewport height, so it means the same thing in
+// portrait and landscape, and the choice is kept per device.
+const PAD_SHIFT_STEP = 5;  // vh per press
+const PAD_SHIFT_MAX = 30;  // past this the two splits would meet in the middle
+let padShift = 0;
+
+function applyPadShift(vh) {
+  padShift = Number.isFinite(vh) ? Math.min(PAD_SHIFT_MAX, Math.max(0, Math.round(vh))) : 0;
+  document.documentElement.style.setProperty('--pad-shift', `${padShift}vh`);
+  $('padUp').disabled = padShift >= PAD_SHIFT_MAX;
+  $('padDown').disabled = padShift <= 0;
+  try { localStorage.setItem('z2rs.padShift', String(padShift)); } catch { /* no storage */ }
+  return padShift;
+}
+
+$('padUp').addEventListener('click', () => applyPadShift(padShift + PAD_SHIFT_STEP));
+$('padDown').addEventListener('click', () => applyPadShift(padShift - PAD_SHIFT_STEP));
+{
+  let remembered = 0;
+  try { remembered = Number(localStorage.getItem('z2rs.padShift')); } catch { /* no storage */ }
+  applyPadShift(remembered);
+}
 
 // --- frame loop (rAF accumulator @ NTSC_HZ) --------------------------------
 let lastT = 0;
@@ -824,6 +911,36 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // --- ROM loading ------------------------------------------------------------
+// The Game ROM card starts as a request ("No ROM is provided") and has to
+// stop claiming that the moment a dump is in: same words, now stating what
+// the wasm side accepted. A file the hash gate refused says so, with the
+// hash it wanted, instead of leaving the request standing over a running game.
+function setRomIntro(kind, detail = '') {
+  const el = $('romIntro');
+  const ok = kind === 'loaded';
+  el.classList.toggle('ok', ok);
+  const strong = document.createElement('strong');
+  const crc = document.createElement('code');
+  crc.textContent = ok ? detail : 'BA322865';
+  if (ok) {
+    strong.textContent = 'ROM loaded. ';
+    el.replaceChildren(
+      strong,
+      document.createTextNode('Zelda II (USA) passed the hash gate in this tab (body CRC32 '),
+      crc,
+      document.createTextNode('). The bytes never leave your device.'),
+    );
+  } else {
+    strong.textContent = 'ROM rejected. ';
+    el.replaceChildren(
+      strong,
+      document.createTextNode(`${detail} — expecting a Zelda II (USA) dump (body CRC32 `),
+      crc,
+      document.createTextNode(').'),
+    );
+  }
+}
+
 // One entry point for every source (drop, file picker, host download): the
 // wasm side hash-gates the bytes, and nothing here stores them anywhere.
 function loadRomBytes(buf) {
@@ -833,8 +950,10 @@ function loadRomBytes(buf) {
     emu.load_rom(buf);
   } catch (e) {
     statusEl.textContent = `ROM rejected: ${e}`;
+    setRomIntro('rejected', String(e));
     return;
   }
+  setRomIntro('loaded', JSON.parse(emu.state()).crc32 || 'BA322865');
   // Re-apply the UI's feature state to the freshly built game. `load_rom`
   // constructs a new `Game` (and re-arms the render record from the settings
   // already held in wasm), so without this a second ROM load would run with
@@ -850,6 +969,9 @@ function loadRomBytes(buf) {
   }
   try {
     emu.coop_enable(coopOn);
+    // The split flag survives a ROM swap (it lives on WebEmu, not Game), but
+    // the freshly built game needs the buffer sized for it again.
+    emu.split_2p_enable(splitOn);
   } catch (e) {
     statusNote += `\nco-op: ${e}`;
   }
@@ -865,11 +987,34 @@ function loadRomBytes(buf) {
   setStatus();
   $('drop').classList.add('has-rom'); // hides the "insert cartridge" screen
   // On a phone the picture is the page: bring it under the thumbs' controller.
-  if (!touchPad.hidden) screen.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (!pad1.root.hidden) screen.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 async function loadRomFile(file) {
   loadRomBytes(new Uint8Array(await file.arrayBuffer()));
+}
+
+// --- the Android shell's own cartridge ----------------------------------
+// A WebView file picker hands the page a content:// URI whose permission
+// lives only for that one callback, so a relaunch would ask the user to pick
+// the same file again. The shell (android/) therefore keeps the ROM in its
+// own private storage and serves it back through this same https origin,
+// under /_rom/. Nothing else answers that path: the hosted site gets a 404
+// and carries on, and the bytes still never leave the device.
+async function loadShellRom() {
+  if (location.hostname !== 'appassets.androidplatform.net') return;
+  let res;
+  try {
+    res = await fetch('/_rom/zelda2.nes');
+  } catch (e) {
+    return;
+  }
+  if (!res.ok) return;
+  try {
+    loadRomBytes(new Uint8Array(await res.arrayBuffer()));
+  } catch (e) {
+    statusNote += `\nshell ROM: ${e}`;
+  }
 }
 
 // The TV screen (#drop) and anything marked data-rom-drop take a dropped ROM.
@@ -964,6 +1109,29 @@ $('snapImport').addEventListener('change', async (e) => {
 });
 
 // --- widescreen / local co-op ------------------------------------------------
+// The portrait split follows local co-op: two players in front of ONE screen
+// each take an end of it, so the picture is shown twice with the upper copy
+// turned through 180°. An online session never asks for it — each peer has a
+// screen of their own — and `?split=0` / the checkbox refuses it outright.
+function applySplit() {
+  if (!emu) return; // boot() calls this again once the wasm side exists
+  const want = !!(splitWanted && coopOn && !netActive);
+  if (want === splitOn) return;
+  splitOn = want;
+  try {
+    emu.split_2p_enable(splitOn);
+  } catch (e) {
+    setStatus(` · split: ${e}`);
+    splitOn = !splitOn;
+    return;
+  }
+  syncCanvas();
+  // The picture is now twice as tall as it is wide: it leaves the 4:3
+  // cabinet and pins itself over the page (see `#room.split2p`).
+  room.classList.toggle('split2p', splitOn);
+  pad2.root.hidden = !(splitOn && !pad1.root.hidden);
+}
+
 function setCoop(on) {
   coopOn = !!on;
   $('coopChk').checked = coopOn;
@@ -972,6 +1140,7 @@ function setCoop(on) {
   } catch (e) {
     setStatus(` · co-op: ${e}`);
   }
+  applySplit();
 }
 
 $('wideSel').addEventListener('change', () => {
@@ -1000,6 +1169,10 @@ $('wideGameChk').addEventListener('change', () => {
 });
 
 $('coopChk').addEventListener('change', () => setCoop($('coopChk').checked));
+$('splitChk').addEventListener('change', () => {
+  splitWanted = $('splitChk').checked;
+  applySplit();
+});
 
 $('clipChk').addEventListener('change', () => {
   try {
@@ -1056,7 +1229,9 @@ document.addEventListener('fullscreenchange', () => {
 });
 $('fsBtn').addEventListener('click', () => setFullscreen(!fullscreenOn()));
 $('fsExit').addEventListener('click', () => setFullscreen(false));
-screen.addEventListener('dblclick', () => setFullscreen(!fullscreenOn()));
+// The split pins the picture over the deck, so it brings its own way out:
+// back to one player, which is what unticking the co-op box would do anyway.
+$('splitExit').addEventListener('click', () => setCoop(false));
 // F11 matches the desktop app. Esc is handled by the browser in real
 // fullscreen; this covers the pinned-screen fallback.
 addEventListener('keydown', (e) => {
@@ -1114,9 +1289,12 @@ function syncHdPanel() {
   const supported = emu.hd_supported();
   $('hdDir').disabled = !supported || netActive;
   $('hdScale').disabled = !supported || netActive;
+  const device = $('hdDevice');
+  if (device) device.disabled = !supported || netActive;
   if (!supported) {
     $('hdBox').classList.add('unsupported');
     $('hdClear').disabled = true;
+    if (device) device.hidden = true;
     hdSay('HD packs are not in this build — rebuild with `--features hd` (see site/README).');
     return;
   }
@@ -1179,6 +1357,80 @@ $('hdDir').addEventListener('change', async (e) => {
   }
   e.target.value = ''; // let the same folder be re-picked after an edit
 });
+
+// --- an HD pack from a folder on the device ---------------------------------
+// A WebView's file chooser hands the page bare file names with no path, so
+// `<input webkitdirectory>` cannot see a pack's `sheets/` and `layers/`:
+// `sheet-01.png` never matches the `sheets/sheet-01.png` the manifest asks
+// for (which is the "cannot read" error the pump reports). On the shell's own
+// origin the folder is therefore picked by the *shell*, which mounts it under
+// /_hdp/ and lets the page read it back like any other directory.
+const HD_FOLDER = '/_hdp/';
+// Long enough for someone to find the pack in the system picker; a cancel
+// just ends here with a message.
+const HD_FOLDER_WAIT_MS = 120000;
+
+// pack.json names every PNG it needs (the sheets[] and layers[] entries, plus
+// a `file` some tile entries carry): read the manifest, then fetch exactly
+// those, so a partial folder fails loudly instead of rendering half a pack.
+async function readPackFiles(prefix) {
+  const manifest = JSON.parse(
+    await (await fetch(`${prefix}pack.json`, { cache: 'no-store' })).text(),
+  );
+  const names = ['pack.json'];
+  for (const list of [manifest.sheets || [], manifest.layers || [], manifest.tiles || []]) {
+    for (const e of list) {
+      if (e && typeof e.file === 'string' && !names.includes(e.file)) names.push(e.file);
+    }
+  }
+  const files = [];
+  for (const name of names) {
+    const r = await fetch(prefix + name, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+    files.push({ name, bytes: new Uint8Array(await r.arrayBuffer()) });
+  }
+  return files;
+}
+
+async function usePackFolder() {
+  hdSay('pick the folder that holds pack.json…');
+  try {
+    // The shell opens its own directory picker and answers by mounting it;
+    // there is no event for that, so wait for the manifest to appear.
+    location.href = 'z2rs://hd-pack';
+    const t0 = performance.now();
+    for (;;) {
+      if (performance.now() - t0 > HD_FOLDER_WAIT_MS) throw new Error('no folder was chosen');
+      try {
+        const probe = await fetch(`${HD_FOLDER}pack.json`, { cache: 'no-store' });
+        if (probe.ok) break;
+      } catch { /* the picker is still open */ }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    hdSay('reading the pack…');
+    const info = loadHdFiles(await readPackFiles(HD_FOLDER));
+    setStatus(` · HD pack "${info.name}" loaded`);
+  } catch (err) {
+    const kept = JSON.parse(emu.hd_pack_info());
+    hdSay(
+      `pack rejected: ${err} — still playing with ` +
+      (kept ? `the "${kept.name}" pack.` : 'the original art.'),
+      'err',
+    );
+    syncCanvas();
+  }
+}
+
+if (location.hostname === 'appassets.androidplatform.net') {
+  // The stock picker cannot hand over a folder here, so it would only ever
+  // produce that "cannot read" error: the shell's own folder button replaces
+  // it. Everywhere else both rows stay exactly as the desktop has them.
+  $('hdDirLabel').hidden = true;
+  $('hdDir').hidden = true;
+  const device = $('hdDevice');
+  device.hidden = false;
+  device.addEventListener('click', () => usePackFolder());
+}
 
 $('hdScale').addEventListener('change', () => {
   const n = Number($('hdScale').value) >>> 0;
@@ -1319,6 +1571,7 @@ function netConnect(isHost) {
   }
   netActive = true;
   netLastT = 0;
+  applySplit(); // each peer has a screen of its own: no split online
   // A paused page never calls net_poll, so a session started while paused could
   // never connect.
   setPaused(false);
@@ -1331,6 +1584,7 @@ function endNetSession(message) {
   emu.net_disconnect();
   netActive = false;
   netLastT = 0;
+  applySplit(); // local again: the split may come back with co-op
   syncNetButtons();
   $('netStatus').textContent = message;
 }
