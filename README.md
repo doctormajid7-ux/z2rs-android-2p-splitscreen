@@ -13,6 +13,8 @@ On top of the original game, z2rs adds a few optional extras:
 
 Release announcement: [Moddable Zelda 2 PC / Web port with Online Multiplayer Co-op and Widescreen Released](https://x.com/troygentic/status/2101572848506573135). Chat is on [Discord](https://discord.gg/buZrPenm6K).
 
+This fork also builds **Android**: the same frontend in an APK, plus a portrait two-player split (the screen shown twice, the top copy upside down, one controller per player) and on-screen controls you can lift off the edges. The APK is in [`dist/`](dist/) and everything about it — what changed for players, and the technical detail of the shell — is in [ANDROID.md](ANDROID.md).
+
 ## Play it
 
 1. Download the archive for your system from the [releases page](https://github.com/troyedwardsjr/z2rs/releases). There are builds for Linux, macOS (Intel and Apple Silicon) and Windows. Unpack it.

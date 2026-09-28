@@ -1,0 +1,156 @@
+plugins { id 'com.android.application' }
+
+// The APK ships the web frontend: index.html, app.js, the audio worklet, the
+// art and the wasm bundle. Copying them here rather than checking them in keeps
+// the ~350 KiB bundle and its generated JS out of git, and fails early with the
+// command to run when the bundle has not been built yet.
+def siteRoot = file("$rootDir/../crates/z2-web/site")
+def siteAssets = file('src/main/assets/site')
+
+tasks.register('prepareSite', Copy) {
+    description = 'Copy the web frontend (and its wasm bundle) into the APK assets.'
+    from(siteRoot) {
+        include 'index.html', 'app.js', 'worklet.js', 'assets/**', 'pkg/**'
+        exclude '**/.gitignore', '**/package.json'
+    }
+    into siteAssets
+    doFirst {
+        def wasm = new File(siteRoot, 'pkg/z2_web_bg.wasm')
+        if (!wasm.isFile()) {
+            throw new GradleException(
+                "missing ${wasm}\nbuild the bundle first:\n" +
+                "    RUSTUP_TOOLCHAIN=stable wasm-pack build crates/z2-web --target web --out-dir site/pkg")
+        }
+    }
+}
+
+android {
+    namespace 'org.z2rs.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.z2rs.app'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    // No third-party dependencies: the shell is android.* plus the platform
+    // WebView, so a build needs only the SDK and the Gradle plugin.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// --- the cartridge inside the APK -------------------------------------------
+// The APK ships *without* a game: the page's Game ROM card is how a dump gets
+// in, and the shell keeps the file the player picked for the next launch. To
+// build one that does contain a dump (your own device, never for publishing):
+//
+//   Z2_APK_ROM=/path/to/dump ./gradlew assembleDebug
+//
+//   1. $Z2_APK_ROM set to a file embeds it;
+//   2. $Z2_APK_ROM = `off`/`none`/`0`/empty, or unset, embeds nothing — and
+//      anything a previous build staged is removed, so a stale dump can never
+//      ride along into a later APK by accident.
+//
+// The candidate must open with the iNES magic. It lands in
+// `src/main/assets/site/`, which is gitignored together with every other
+// `*.nes`, so LEGAL.md §1 still holds: no ROM enters the repository. What this
+// produces, though, is an APK that *contains* the game — build it for your own
+// device and do not publish it.
+tasks.register('stageRom') {
+    description = 'Embed a ROM in the APK assets when Z2_APK_ROM points at one.'
+    def dest = file('src/main/assets/site/zelda2.nes')
+    def override = System.getenv('Z2_APK_ROM')
+    doLast {
+        File src = null
+        if (override != null) {
+            def v = override.trim()
+            if (!['off', 'none', '0'].contains(v.toLowerCase()) && !v.isEmpty()) {
+                src = file(v)
+                if (!src.isFile()) {
+                    throw new GradleException("Z2_APK_ROM='${override}' is not a file")
+                }
+            }
+        }
+        if (src == null) {
+            if (dest.delete()) {
+                logger.lifecycle('no ROM requested: staged copy removed, APK ships without a game')
+            }
+            return
+        }
+        def bytes = src.bytes
+        if (bytes.length < 16 || bytes[0] != (byte) 'N' || bytes[1] != (byte) 'E'
+                || bytes[2] != (byte) 'S' || bytes[3] != 0x1A) {
+            throw new GradleException("${src} is not an iNES file")
+        }
+        dest.parentFile.mkdirs()
+        dest.bytes = bytes
+        logger.lifecycle("staged ${src.name} into the APK (${bytes.length} bytes)")
+    }
+}
+
+// --- an HD graphics pack inside the APK (opt-in) ---------------------------
+// The page's own "Pack folder…" picker is the normal way in, so the APK ships
+// without a pack. To fold one in anyway (your own device — the art is
+// personal-use Patreon material, see its LICENSE.txt):
+//
+//   Z2_APK_HDPACK=/path/to/pack ./gradlew assembleDebug
+//
+// It is copied next to the page as `site/hdpack/`. Anything a previous build
+// staged is removed when the variable is unset, so a pack can never ride
+// along into a later APK by accident, and .gitignore keeps it out of git.
+tasks.register('stageHdPack') {
+    description = 'Stage an HD pack into the APK assets when Z2_APK_HDPACK points at one.'
+    def dest = file('src/main/assets/site/hdpack')
+    def override = System.getenv('Z2_APK_HDPACK')
+    doLast {
+        File src = null
+        if (override != null && !override.trim().isEmpty()) {
+            src = file(override.trim())
+            if (!src.isDirectory()) {
+                throw new GradleException("Z2_APK_HDPACK='${override}' is not a directory")
+            }
+        }
+        if (src == null) {
+            if (dest.delete()) {
+                logger.lifecycle('no HD pack requested: staged pack removed')
+            }
+            return
+        }
+        if (!new File(src, 'pack.json').isFile()) {
+            throw new GradleException("${src} has no pack.json — not an HD pack")
+        }
+        delete dest
+        copy {
+            from(src) {
+                include 'pack.json', 'sheets/**', 'layers/**', 'LICENSE.txt', 'README.txt'
+            }
+            into dest
+        }
+        logger.lifecycle("staged HD pack ${src.name} into the APK")
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn 'prepareSite'
+    dependsOn 'stageRom'
+    dependsOn 'stageHdPack'
+}
+
+// Asset merging must wait for everything that writes into `assets/`, or a
+// build can package whatever happened to be there when the merge snapshot
+// was taken (a one-pass `assembleDebug` then ships a stale site or no pack).
+tasks.matching { it.name.startsWith('merge') && it.name.endsWith('Assets') }.configureEach {
+    dependsOn 'prepareSite', 'stageRom', 'stageHdPack'
+}

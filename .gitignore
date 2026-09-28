@@ -3,7 +3,9 @@
 
 # Local ROM copies are NEVER committed. Supply the ROM via the Z2_ROM
 # environment variable pointing at your own dump. See LEGAL.md.
+# LEGAL.md §1 says "in any form", so a dump inside an archive counts too.
 *.nes
+*Zelda*.zip
 /rom/
 
 # Generated asset bundle (built from the user's ROM via z2-assets).
@@ -23,6 +25,19 @@ assets.bin
 # wasm-pack output. It also drops its own `*` .gitignore in there, but say so
 # here too: the bundle is a build artifact and is rebuilt by `make run-web`.
 /crates/z2-web/site/pkg/
+
+# Android shell: the site is copied into the APK's assets by the Gradle
+# `prepareSite` task (from crates/z2-web/site, wasm bundle included), Gradle's
+# own output and the machine-local SDK path are never committed.
+/android/app/src/main/assets/site/
+/android/local.properties
+/android/.gradle/
+/android/build/
+/android/app/build/
+*.apk
+# …except the copy published for sideloading (see ANDROID.md): builds stay
+# ignored, this one file is committed on purpose.
+!/dist/*.apk
 
 # Editor / OS noise
 .DS_Store
@@ -46,3 +61,8 @@ hdpack-templates/
 **/build-report.txt
 **/cut-report.txt
 .env.local
+
+# The Patreon HD pack and its archive: personal-use art (see its LICENSE.txt),
+# never committed — an APK build stages it only when Z2_APK_HDPACK asks.
+/z2rs-hd-pack*/
+z2rs-hd-pack*.zip
