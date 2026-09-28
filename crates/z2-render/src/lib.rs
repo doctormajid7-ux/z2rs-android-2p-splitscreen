@@ -18,6 +18,9 @@
 //!   [`HdPack`] lookup tables.
 //! - [`template`]: full-page template sheets straight from CHR pages.
 //! - [`recorder`]: seen-tile bookkeeping and palette-specific template packs.
+//! - the portrait two-player split lives in `z2_ppu::split2p`, next to the
+//!   widescreen composer it is a sibling of (it must be available to a
+//!   frontend built without this crate).
 //! - `fs` (native only): directory load / write helpers and the git work
 //!   tree guard used by every tool that writes ROM-derived output.
 //!

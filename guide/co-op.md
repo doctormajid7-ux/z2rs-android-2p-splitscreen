@@ -54,6 +54,21 @@ The transport is WebRTC data channels through matchbox. The desktop app and the 
 
 There is no late join. The guest receives the host's save memory when the session starts and both sides reset together. If the ROM hash, protocol version or feature flags differ, the handshake refuses to start.
 
+## The portrait split
+
+Local co-op can stand the picture up: the frame is presented twice, the top
+copy turned through 180°, so the two players sit at opposite ends of a portrait
+screen and each sees it upright. It is one shared picture, not two cameras —
+the camera still follows player 1 and nothing about the emulation changes, so
+it stays out of the verification path and out of any netplay identity.
+
+The desktop app turns it on with `--coop-local` and refuses it with
+`--split2p off` (config key `split_2p`); the window opens twice as tall. The
+browser turns it on with the "local co-op" checkbox, refuses it with `?split=0`
+or the "Portrait split" checkbox, shows a second on-screen controller in the
+top half, and pins the picture over the page while it is on. An online session
+never asks for it: each peer has a screen of their own.
+
 ## Limits
 
 These apply to both the desktop app and the browser build.
@@ -72,6 +87,8 @@ Co-op:
 - Player 2 cannot use doors, elevators, NPCs, shops or spells.
 - Enemies target player 1.
 - There is one save and one set of stats.
+- The portrait split shows both players the same picture: it halves how much
+  of the level each of them can see, rather than giving each a camera.
 
 Online play:
 

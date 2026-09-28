@@ -1287,6 +1287,11 @@ pub struct DisplaySettings {
     pub pack_dir: Option<PathBuf>,
     /// Write a recorded template pack here when the app exits.
     pub record_dir: Option<PathBuf>,
+    /// Portrait two-player split (local co-op only): present the frame twice,
+    /// the top copy rotated 180°, so two players at opposite ends of a
+    /// portrait screen each see the same picture upright. Display only — the
+    /// game, the verification path and netplay identities never see it.
+    pub split_2p: bool,
 }
 
 impl DisplaySettings {
@@ -1328,6 +1333,9 @@ pub struct Display {
     empty_record: z2_ppu::FrameRecord,
     /// One-line description of the loaded pack, for the startup log.
     pack_note: Option<String>,
+    /// Doubled portrait frame, only written while the split is on (empty
+    /// otherwise, so a single-player session holds no second copy).
+    split_buf: Vec<u8>,
 }
 
 impl std::fmt::Debug for Display {
@@ -1386,6 +1394,7 @@ impl Display {
             recorder,
             empty_record: z2_ppu::FrameRecord::new(),
             pack_note,
+            split_buf: Vec::new(),
         })
     }
 
@@ -1396,13 +1405,12 @@ impl Display {
     }
 
     /// Texture size to allocate, in pixels. **Re-read after every change**:
-    /// an HD pack can raise the effective scale above the requested one.
+    /// an HD pack can raise the effective scale above the requested one, and
+    /// the portrait two-player split doubles the height.
     #[must_use]
     pub fn size(&self) -> (u32, u32) {
-        (
-            self.presenter.width() as u32,
-            self.presenter.height() as u32,
-        )
+        let h = self.presenter.height() * z2_ppu::height_multiplier(self.settings.split_2p);
+        (self.presenter.width() as u32, h as u32)
     }
 
     /// Output multiplier actually in use.
@@ -1437,6 +1445,10 @@ impl Display {
     /// stepped frame) the margins fall back to the line backdrop, which is the
     /// correct picture for a title screen or a cartridge-less window.
     ///
+    /// With [`DisplaySettings::split_2p`] the composed frame is then written
+    /// twice — the top copy rotated 180° — and [`Self::size`] reports the
+    /// doubled height, so the caller's texture stays exactly one frame.
+    ///
     /// # Errors
     /// A [`z2_render::ComposeError`], rendered as text. Every case is a size or
     /// scale mismatch, i.e. a frontend bug rather than user input.
@@ -1465,9 +1477,24 @@ impl Display {
             rec.observe(record);
             rec.end_frame();
         }
-        self.presenter
+        // Dimensions first: the slice below borrows the presenter, so the
+        // size has to be read while nothing else is outstanding.
+        let (w, h) = (self.presenter.width(), self.presenter.height());
+        let out = self
+            .presenter
             .present(game.frame_indexed(), record, &game.chr)
-            .map_err(|e| format!("present: {e}"))
+            .map_err(|e| format!("present: {e}"))?;
+        if !self.settings.split_2p {
+            return Ok(out);
+        }
+        // Portrait two-player split: the same frame again, turned through
+        // 180°, standing above the original.
+        let want = z2_ppu::out_len(w, h, true);
+        if self.split_buf.len() != want {
+            self.split_buf.resize(want, 0);
+        }
+        z2_ppu::duplicate_rotated(out, w, h, &mut self.split_buf);
+        Ok(&self.split_buf)
     }
 
     /// Write the recorded template pack, if `--hd-record` asked for one.
@@ -1595,6 +1622,9 @@ pub struct NativeArgs {
     /// `--fullscreen`: start in borderless fullscreen (ORed with the
     /// `fullscreen` config key). Display only.
     pub fullscreen: bool,
+    /// `--split2p on|off` (overrides the `split_2p` config key): the portrait
+    /// two-player split, which only matters while local co-op is on.
+    pub split_2p: Option<bool>,
 }
 
 pub const NATIVE_USAGE: &str = "\
@@ -1606,6 +1636,7 @@ usage: z2-native [--rom PATH] [--movie M.fm2|.bk2] [--config PATH]
                  [--hd-pack DIR] [--hd-scale N] [--hd-record DIR]
                  [--scale N] [--fullscreen]
                  [--coop-local] [--coop-host ROOM | --coop-join ROOM]
+                 [--split2p on|off]
                  [--signal URL] [--net-mode rollback|lockstep] [--net-delay N]
                  [--ice SPEC] [--p2-pad INDEX] [--p2-follow N] [--headless ...]
   --rom PATH       Zelda II .nes ROM (else config rom_path / $Z2_ROM). Never stored.
@@ -1635,6 +1666,10 @@ usage: z2-native [--rom PATH] [--movie M.fm2|.bk2] [--config PATH]
   --hd-record DIR  on exit, write a template pack of the tiles this session drew.
                    ROM-derived output: DIR must be outside any git work tree.
   --coop-local     two players on this machine (P2: keys_p2 / second gamepad).
+  --split2p on|off portrait two-player split while local co-op is on: the frame
+                   is shown twice, the top copy rotated 180°, so the two
+                   players sit at opposite ends of a portrait screen (default
+                   on; config key split_2p).
   --coop-host ROOM host an online 2-player session (you are player 1).
   --coop-join ROOM join an online session in ROOM as player 2.
   --signal URL     signalling server, ws://host[:port] (default ws://127.0.0.1:3536;
@@ -1706,6 +1741,7 @@ pub fn parse_native_args(argv: &[String]) -> Result<NativeArgs, String> {
                 }
                 out.widescreen = Some(v);
             }
+            "--split2p" => out.split_2p = Some(native_on_off(&mut it, "--split2p")?),
             "--coop-local" => {
                 coop_flags_seen += 1;
                 out.coop = CoopMode::Local;
@@ -2028,6 +2064,10 @@ pub fn resolve_display(
         None => config.widescreen_tiles(),
     };
     let non_empty = |s: &String| (!s.trim().is_empty()).then(|| PathBuf::from(s.trim()));
+    // The portrait split is an arrangement for two players in front of ONE
+    // screen, each at an end of it. An online peer has a screen of their own,
+    // so a session over the wire never asks for it (see `resolve_coop`).
+    let coop_local = resolve_coop(args, config) && !args.coop.is_online();
     Ok(DisplaySettings {
         wide_tiles,
         scale: match args.hd_scale {
@@ -2051,6 +2091,7 @@ pub fn resolve_display(
             Some(s) => non_empty(s),
             None => config.hd_record.as_ref().and_then(non_empty),
         },
+        split_2p: coop_local && args.split_2p.unwrap_or(config.split_2p),
     })
 }
 
@@ -4364,6 +4405,7 @@ mod tests {
                     pack_dir: None,
                     record_dir: None,
                     margin_sprites: false,
+                    split_2p: false,
                 })
                 .expect("no pack: cannot fail");
                 assert_eq!(d.size(), present_size_scaled(tiles, scale));
@@ -4397,6 +4439,7 @@ mod tests {
                         pack_dir: None,
                         record_dir: None,
                         margin_sprites: false,
+                        split_2p: false,
                     };
                     let feats = settings.features(coop);
                     let mut emu = new_emu_with(44_100, feats);

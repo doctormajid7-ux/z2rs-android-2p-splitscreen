@@ -39,6 +39,13 @@
 //! never changes pixels. [`render_wide_indexed`] composes a wider indexed
 //! image whose centre 256 columns are the frame verbatim and whose margins
 //! are painted from tile identities ([`Margins`]) supplied by a provider.
+//!
+//! ## Portrait two-player split (opt-in, display only)
+//!
+//! [`split2p`] doubles the presented frame and turns the upper copy through
+//! 180°, so two players sitting at opposite ends of a portrait screen each
+//! see the same picture upright. Nothing in the PPU or the game learns about
+//! it.
 
 pub mod golden;
 pub mod margin_sprite;
@@ -46,6 +53,7 @@ pub mod palette;
 pub mod png;
 pub mod record;
 pub mod render;
+pub mod split2p;
 pub mod state;
 pub mod wide;
 
@@ -61,6 +69,7 @@ pub use render::{
     diff_indexed, probe_sprite0_hit, render_frame, render_line, write_diff_ppm, FrameDiff,
     IndexedFrame, LineFlags, MAX_DIFF_COORDS,
 };
+pub use split2p::{duplicate_rotated, duplicate_rotated_in_place, height_multiplier, out_len};
 pub use state::{
     AccessKind, ChrError, Mirroring, OamEntry, Ppu, PpuEvent, PpuEventKind, SpriteLimit,
     ATTR_OFFSET, BG_FETCHES_PER_LINE, CHR_BANK_LEN, DOTS_PER_LINE, LINES_PER_FRAME,

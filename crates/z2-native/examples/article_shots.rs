@@ -348,6 +348,7 @@ impl Displays {
                     None
                 },
                 margin_sprites: false,
+                split_2p: false,
             })?;
             self.map.insert(variant.to_string(), d);
         }

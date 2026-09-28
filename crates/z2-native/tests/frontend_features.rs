@@ -38,6 +38,8 @@ fn every_new_flag_parses() {
         "off",
         "--margin-sprites",
         "off",
+        "--split2p",
+        "off",
     ]))
     .expect("parses");
     assert_eq!(a.rom.as_deref(), Some("/tmp/z2.nes"));
@@ -50,6 +52,7 @@ fn every_new_flag_parses() {
     assert_eq!(a.fill_left_clip, Some(false));
     assert_eq!(a.fill_right_clip, Some(false));
     assert_eq!(a.margin_sprites, Some(false));
+    assert_eq!(a.split_2p, Some(false));
 
     let h = app::parse_native_args(&argv(&[
         "z2-native",
@@ -88,6 +91,8 @@ fn unknown_flags_still_error_with_usage() {
         vec!["z2-native", "--fill-left-clip", "yes"],
         vec!["z2-native", "--fill-right-clip", "yes"],
         vec!["z2-native", "--margin-sprites", "yes"],
+        vec!["z2-native", "--split2p", "yes"],
+        vec!["z2-native", "--split2p"],               // missing value
         vec!["z2-native", "--coop-host", "bad room"], // space is not allowed
         vec!["z2-native", "--coop-host", ""],         // empty room
         vec!["z2-native", "--signal", "http://x"],    // not ws://
@@ -175,6 +180,7 @@ fn help_still_surfaces_usage_and_documents_the_new_flags() {
         "--fill-left-clip",
         "--fill-right-clip",
         "--margin-sprites",
+        "--split2p",
     ] {
         assert!(err.contains(needle), "usage must mention {needle}");
     }
@@ -266,6 +272,110 @@ fn cli_overrides_config_and_config_supplies_the_default() {
     );
 }
 
+// ------------------------------------------------------- portrait split (2P)
+
+/// The split is an arrangement for two players in front of ONE screen, so it
+/// follows local co-op, stays off for every other mode, and can be refused.
+#[test]
+fn portrait_split_follows_local_co_op_only() {
+    let cfg = NativeConfig::default();
+    let none = app::parse_native_args(&argv(&["z2-native"])).unwrap();
+    assert!(
+        !app::resolve_display(&none, &cfg).unwrap().split_2p,
+        "single player never doubles the frame"
+    );
+
+    let local = app::parse_native_args(&argv(&["z2-native", "--coop-local"])).unwrap();
+    assert!(
+        app::resolve_display(&local, &cfg).unwrap().split_2p,
+        "local co-op turns it on"
+    );
+
+    let refused =
+        app::parse_native_args(&argv(&["z2-native", "--coop-local", "--split2p", "off"])).unwrap();
+    assert!(
+        !app::resolve_display(&refused, &cfg).unwrap().split_2p,
+        "--split2p off wins"
+    );
+
+    // The config key does the same job from the file.
+    let cfg_on = NativeConfig {
+        coop_local: true,
+        ..NativeConfig::default()
+    };
+    assert!(app::resolve_display(&none, &cfg_on).unwrap().split_2p);
+    let cfg_off = NativeConfig {
+        coop_local: true,
+        split_2p: false,
+        ..NativeConfig::default()
+    };
+    assert!(!app::resolve_display(&none, &cfg_off).unwrap().split_2p);
+
+    // An online peer has a screen of their own, so the split never travels.
+    for flag in [["--coop-host", "r"], ["--coop-join", "r"]] {
+        let online = app::parse_native_args(&argv(&["z2-native", flag[0], flag[1]])).unwrap();
+        assert!(
+            !app::resolve_display(&online, &cfg).unwrap().split_2p,
+            "{flag:?} keeps a whole screen each"
+        );
+    }
+}
+
+/// `Display::size` and what `Display::present` hands back move together, so
+/// the texture the window allocates always matches the frame it is given.
+#[test]
+fn portrait_split_doubles_the_presented_frame() {
+    let flat_settings = DisplaySettings {
+        wide_tiles: 0,
+        scale: 1,
+        fill_left_clip: false,
+        fill_right_clip: false,
+        pack_dir: None,
+        record_dir: None,
+        margin_sprites: false,
+        split_2p: false,
+    };
+    let split_settings = DisplaySettings {
+        split_2p: true,
+        ..flat_settings.clone()
+    };
+
+    let mut emu = app::new_emu_with(44_100, flat_settings.features(false));
+    app::step_frames(&mut emu, &[0u8; 10], None);
+
+    let mut flat = Display::new(flat_settings).expect("no pack");
+    let mut split = Display::new(split_settings).expect("no pack");
+
+    let (fw, fh) = flat.size();
+    assert_eq!(split.size(), (fw, fh * 2), "twice as tall, no wider");
+
+    let one = flat.present(&emu.game).expect("single").to_vec();
+    let two = split.present(&emu.game).expect("split").to_vec();
+    assert_eq!(two.len(), one.len() * 2, "one frame, shown twice");
+    assert_eq!(
+        &two[one.len()..],
+        &one[..],
+        "the lower half is the original, byte for byte"
+    );
+
+    // The upper half is that frame turned through 180°, spelled out here from
+    // the contract rather than delegated to the helper under test.
+    let (w, h) = (fw as usize, fh as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let src = ((h - 1 - y) * w + (w - 1 - x)) * 4;
+            let dst = (y * w + x) * 4;
+            assert_eq!(
+                &two[dst..dst + 4],
+                &one[src..src + 4],
+                "upper pixel ({x},{y}) is the original ({},{})",
+                w - 1 - x,
+                h - 1 - y
+            );
+        }
+    }
+}
+
 // --------------------------------------------------------------- texture sizing
 
 #[test]
@@ -287,6 +397,7 @@ fn present_size_follows_the_widescreen_preset_and_scale() {
                 pack_dir: None,
                 record_dir: None,
                 margin_sprites: false,
+                split_2p: false,
             })
             .expect("no pack");
             assert_eq!(d.size(), app::present_size_scaled(tiles, scale));
@@ -343,6 +454,7 @@ fn no_rom_start_is_consistent_under_every_feature_combination() {
                     pack_dir: None,
                     record_dir: None,
                     margin_sprites: false,
+                    split_2p: false,
                 };
                 let what = format!("tiles={tiles} scale={scale} coop={coop}");
                 let feats = settings.features(coop);
@@ -380,6 +492,7 @@ fn no_rom_two_pad_stepping_and_present_is_safe() {
         pack_dir: None,
         record_dir: None,
         margin_sprites: false,
+        split_2p: false,
     };
     let mut emu = app::new_emu_with(44_100, settings.features(true));
     let mut display = Display::new(settings).expect("no pack");
@@ -456,6 +569,7 @@ fn hd_recording_round_trips_into_a_loadable_pack() {
         pack_dir: None,
         record_dir: Some(dir.clone()),
         margin_sprites: false,
+        split_2p: false,
     };
     let feats = settings.features(false);
     assert!(feats.record, "recording needs the PPU render record");
@@ -489,6 +603,7 @@ fn hd_recording_round_trips_into_a_loadable_pack() {
         pack_dir: Some(dir.clone()),
         record_dir: None,
         margin_sprites: false,
+        split_2p: false,
     };
     let mut hd = Display::new(reload).expect("the recorded pack loads");
     assert_eq!(hd.size(), app::present_size_scaled(11, 2));

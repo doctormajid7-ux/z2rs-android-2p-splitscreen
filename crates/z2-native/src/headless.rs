@@ -129,6 +129,9 @@ impl HeadlessArgs {
             margin_sprites: self.margin_sprites(),
             pack_dir: self.hd_pack.as_deref().map(std::path::PathBuf::from),
             record_dir: None,
+            // The portrait split is a windowed, two-players-in-front-of-one-
+            // screen arrangement; a headless run has no screen at all.
+            split_2p: false,
         }
     }
 

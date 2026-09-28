@@ -357,6 +357,12 @@ pub struct NativeConfig {
     /// Start with local two-player co-op enabled (same as `--coop-local`).
     #[serde(default)]
     pub coop_local: bool,
+    /// Portrait two-player split while local co-op is on (same as
+    /// `--split2p`): the frame is shown twice, the top copy rotated 180°, so
+    /// the two players sit at opposite ends of a portrait screen. Display
+    /// only; never part of any netplay identity. Default on.
+    #[serde(default = "default_true")]
+    pub split_2p: bool,
     /// Pin player 2 to this gamepad by connection order (same as `--p2-pad`).
     #[serde(default)]
     pub gamepad_p2_index: Option<usize>,
@@ -424,6 +430,7 @@ impl Default for NativeConfig {
             hd_scale: default_hd_scale(),
             hd_record: None,
             coop_local: false,
+            split_2p: true,
             gamepad_p2_index: None,
             keys_p2: KeyBindings::default_p2(),
             gamepad_p2: GamepadBindings::default(),
