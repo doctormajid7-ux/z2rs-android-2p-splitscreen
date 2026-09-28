@@ -1,211 +1,212 @@
-# Zelda II 2P Splitscreen — version Android
+# Zelda II 2P Splitscreen — Android
 
-Zelda II (le portage *z2rs*) dans une application Android, avec l'écran scindé
-à deux joueurs repris du « Portrait 2P » de Super Mario War. L'APK prêt à
-installer est dans [`dist/`](dist/).
-
----
-
-## Pour les joueurs
-
-**Ce que c'est.** Le jeu tourne dans une fenêtre Web interne à l'application :
-même émulateur, mêmes options que la version bureau, plus l'écran scindé.
-
-**Installer.** Transférez `dist/z2rs-2p-splitscreen-0.1.0-debug.apk` sur le
-téléphone (ou `adb install -r …`) et ouvrez-le. Android demandera d'autoriser
-l'installation d'une source inconnue.
-
-**La ROM.** Elle n'est pas fournie, ni dans l'APK, ni dans le dépôt : elle doit
-venir de votre propre cartouche. Au premier lancement, la carte **Game ROM**
-vous demande de choisir votre fichier `.nes`. Il est vérifié par empreinte
-(le dump USA, CRC32 `BA322865`) et **reste sur votre appareil** : le lancement
-suivant le rechargera tout seul, la carte affichant « ROM loaded ». Un fichier
-refusé est signalé, avec l'empreinte attendue.
-
-**Deux joueurs, un seul écran.** Cochez **Local co-op** : l'écran se coupe en
-deux, la copie du haut est retournée, et un second pad apparaît en haut — les
-deux joueurs se font face. Le téléphone reste en portrait tant que le mode est
-actif. Le bouton **✕ 1 player**, au milieu du bord droit, revient au jeu seul.
-
-**Régler les manettes.** **Pad ↑** et **Pad ↓** (carte Player) déplacent les
-deux pads en même temps, chacun s'écartant de son bord : utile pour une coque
-épaisse, un coin arrondi ou une barre de gestes. Un cran = 5 % de la hauteur
-d'écran, jusqu'à 30 %, et le réglage est mémorisé. **Hide touch pad** les
-masque complètement.
-
-**Le son.** Il se met en route au premier toucher d'un pad (ou avec **Enable
-audio**). Sur cette version il reste actif même quand la ROM est en cours de
-lecture — un défaut d'émulation le coupait définitivement sur les appareils à
-48 kHz, c'est corrigé.
-
-**Graphismes HD (facultatif).** Si vous possédez un pack HD, ouvrez la carte
-**HD graphics pack**, touchez **Pack folder on this device…** et choisissez le
-dossier qui contient `pack.json` (le pack peut être laissé sur la carte SD).
-**Use original art** rend les graphismes d'origine. Le pack se recharge à
-chaque lancement : rien n'est copié dans l'application.
-
-**Nom et icône.** L'application s'appelle « Zelda II 2P Splitscreen » et porte
-l'icône fournie dans `icon1`.
-
-### Ce qui est nouveau dans cette version
-
-- Mode 2 joueurs **écran scindé inversé** (portrait, haut retourné, second pad
-  tactile, verrouillage portrait) — disponible aussi sur bureau, où il peut
-  être refusé avec `--split2p off`.
-- **Son réparé** : le basculement de fréquence 44 100 → 48 000 Hz silenciait
-  définitivement la sortie sur de nombreux téléphones.
-- **Graphismes HD** activés dans l'application, avec choix du dossier du pack
-  et retour aux graphismes d'origine.
-- **Déplacement des contrôles** (Pad ↑ / Pad ↓) en plus de Hide touch pad.
-- La carte ROM dit maintenant ce qui s'est passé (« ROM loaded » / « ROM
-  rejected ») au lieu d'annoncer « No ROM is provided » à jamais.
-- Ordre des cartes : **Status** avant **Player**.
-- Le **double-tap** ne passe plus en plein écran (bouton Fullscreen et F11
-  restent).
-- La ROM n'est plus embarquée dans l'APK, et l'application s'appelle
-  « Zelda II 2P Splitscreen » avec sa propre icône.
+Zelda II (the *z2rs* port) as an Android app, with the portrait two-player split
+screen borrowed from the "Portrait 2P" mode of Super Mario War. This fork ships
+**the Android app**: the installable APK is attached to the
+[latest release](https://github.com/doctormajid7-ux/z2rs-android-2p-splitscreen/releases/latest)
+and kept in [`dist/`](dist/).
 
 ---
 
-## Détails techniques
+## For players
 
-Pour les utilisateurs avancés, et pour les assistants qui reprennent ce dépôt.
+**What this is.** The game runs in a web view inside the app: the same emulator
+and the same options as the desktop build, plus the split screen and on-screen
+controls built for a phone.
+
+**Install.** Download
+[`z2rs-2p-splitscreen-0.1.0-debug.apk`](https://github.com/doctormajid7-ux/z2rs-android-2p-splitscreen/releases/latest/download/z2rs-2p-splitscreen-0.1.0-debug.apk)
+on the phone (or `adb install -r …`) and open it. Android will ask you to allow
+installation from an unknown source. It runs on Android 7.0 (API 24) and up.
+
+**The ROM.** It is not supplied, neither in the APK nor in this repository: it
+has to come from your own cartridge. On the first launch the **Game ROM** card
+asks you to pick your `.nes` file. It is checked by hash (the USA dump, CRC32
+`BA322865`) and **stays on your device**: the next launch reloads it by itself
+and the card reads "ROM loaded". A rejected file is reported, with the hash the
+app expects.
+
+**Two players, one screen.** Tick **Local co-op**: the screen is cut in two, the
+top copy is turned upside down, and a second pad appears at the top — the two
+players face each other. The phone stays in portrait while the mode is on. The
+**✕ 1 player** button, halfway down the right edge, takes you back to playing
+alone.
+
+**Adjusting the pads.** **Pad ↑** and **Pad ↓** (Player card) move both pads at
+once, each one pulling away from its own edge: useful for a thick case, a rounded
+corner or a gesture bar. One step is 5% of the screen height, up to 30%, and the
+setting is remembered. **Hide touch pad** hides them entirely.
+
+**Sound.** It starts on the first touch of a pad (or with **Enable audio**). On
+this version it also keeps running while a ROM is being loaded — an emulation
+bug used to cut the output for good on 48 kHz devices, and that is fixed.
+
+**HD graphics (optional).** If you own an HD pack, open the **HD graphics pack**
+card, tap **Pack folder on this device…** and pick the folder that holds
+`pack.json` (the pack can stay on the SD card). **Use original art** gives you
+the original graphics back. The pack is reloaded on every launch: nothing is
+copied into the app.
+
+**Name and icon.** The app is called "Zelda II 2P Splitscreen" and carries its
+own icon, taken from `icon1`.
+
+### What is new in this version
+
+- Two-player **mirrored split screen** (portrait, top half upside down, a second
+  touch pad, orientation locked) — also available on desktop, where it can be
+  turned off with `--split2p off`.
+- **Sound fixed**: the 44,100 → 48,000 Hz sample-rate switch used to silence the
+  output for good on many phones.
+- **HD graphics enabled** in the app, with a pack-folder picker and a way back to
+  the original art.
+- **Moving the controls** (Pad ↑ / Pad ↓) on top of Hide touch pad.
+- The ROM card now says what happened ("ROM loaded" / "ROM rejected") instead of
+  claiming "No ROM is provided" forever.
+- Card order: **Status** before **Player**.
+- **Double-tap** no longer toggles fullscreen (the Fullscreen button and `F11`
+  still do).
+- The ROM is no longer embedded in the APK.
+
+---
+
+## Technical details
+
+For advanced users, and for assistants picking this repository up.
 
 ### Architecture
 
-Le shell Android **réutilise le frontend web** : aucun second émulateur. Le
-contenu de `crates/z2-web/site/` (page, `app.js`, worklet audio, `pkg/` wasm)
-est copié dans les assets de l'APK et servi depuis
-`https://appassets.androidplatform.net/` par interception de requêtes dans
-`MainActivity` — pas de `file://`, qui ne peut ni instancier du wasm ni garder
-IndexedDB ou l'`AudioWorklet`. Le `Content-Type` de `.wasm` est exactement
-`application/wasm`, sinon `instantiateStreaming` échoue.
+The Android shell **reuses the web frontend**: there is no second emulator. The
+contents of `crates/z2-web/site/` (the page, `app.js`, the audio worklet,
+`pkg/` wasm) are copied into the APK assets and served from
+`https://appassets.androidplatform.net/` by intercepting requests in
+`MainActivity` — not from `file://`, which can neither instantiate wasm nor keep
+IndexedDB or an `AudioWorklet`. The `Content-Type` of `.wasm` is exactly
+`application/wasm`, otherwise `instantiateStreaming` fails.
 
-C'est la seule politique que le shell possède en propre, avec l'orientation :
-le reste (split, canvas doublé, second pad) appartient à la page.
+That request policy and the orientation are the only things the shell owns: the
+split, the doubled canvas and the second pad all belong to the page.
 
-| route | sert |
+| route | serves |
 |---|---|
-| `/*` | assets de l'APK (`assets/site/…`) |
-| `/_rom/zelda2.nes` | la ROM choisie, dans le stockage privé de l'app (repli sur un asset si un build en a embarqué une) |
-| `/_hdp/…` | l'arbre du dossier de pack HD choisi, résolu par nom de document |
+| `/*` | the APK assets (`assets/site/…`) |
+| `/_rom/zelda2.nes` | the chosen ROM, in the app's private storage (falling back to an asset if a build embedded one) |
+| `/_hdp/…` | the tree of the chosen HD pack folder, resolved by document name |
 
-### ROM et pack HD : jamais dans le dépôt, jamais dans l'APK par défaut
+### ROM and HD pack: never in the repository, never in the APK by default
 
-`app/build.gradle` a trois tâches, accrochées à `preBuild` **et** aux tâches
-`merge*Assets` (sinon un `assembleDebug` peut empaqueter un `assets/` pris
-avant qu'elles n'écrivent) :
+`app/build.gradle` has three tasks, hooked to `preBuild` **and** to the
+`merge*Assets` tasks (otherwise an `assembleDebug` can package an `assets/`
+directory taken before they wrote to it):
 
-- `prepareSite` : copie `index.html`, `app.js`, `worklet.js`, `assets/`, `pkg/`
-  vers `src/main/assets/site/` ; échoue avec la commande à lancer si le bundle
-  wasm manque.
-- `stageRom` : n'embarque une ROM **que** si `Z2_APK_ROM=/chemin/dump` est
-  défini (sinon toute copie d'un build précédent est supprimée).
-- `stageHdPack` : n'embarque un pack **que** si `Z2_APK_HDPACK=/chemin/pack`
-  est défini (dossier avec `pack.json`).
+- `prepareSite`: copies `index.html`, `app.js`, `worklet.js`, `assets/` and
+  `pkg/` into `src/main/assets/site/`; fails with the command to run if the wasm
+  bundle is missing.
+- `stageRom`: embeds a ROM **only** when `Z2_APK_ROM=/path/to/dump` is set
+  (otherwise any copy left behind by a previous build is deleted).
+- `stageHdPack`: embeds a pack **only** when `Z2_APK_HDPACK=/path/to/pack` is set
+  (a folder with `pack.json`).
 
-`.gitignore` couvre `*.nes`, les archives `*Zelda*.zip`, `/z2rs-hd-pack*/`, les
-archives du pack et `/android/app/src/main/assets/site/` : ni la ROM ni l'art
-du pack n'entrent dans l'historique (`LEGAL.md` §1). L'APK publié dans
-`dist/` ne contient ni l'une ni l'autre — le pack HD Patreon est sous licence
-d'usage personnel, il ne doit pas être redistribué.
+`.gitignore` covers `*.nes`, `*Zelda*.zip` archives, `/z2rs-hd-pack*/`, the pack
+archives and `/android/app/src/main/assets/site/`: neither the ROM nor the pack
+art ever enters the history (`LEGAL.md` §1). The APK published in `dist/`
+contains neither — the Patreon HD pack is licensed for personal use and must not
+be redistributed.
 
-### Écran scindé (mode 2 joueurs)
+### Split screen (two-player mode)
 
-- Cœur : `crates/z2-ppu/src/split2p.rs` — `height_multiplier`, `out_len`,
-  `duplicate_rotated`, `duplicate_rotated_in_place`. La trame est présentée
-  `W × 2H`, la copie du haut tournée de 180°.
-- Frontend natif : `DisplaySettings::split_2p`, mémoire doublée dans
-  `Display::present`, drapeau `--split2p on|off`, clé de config `split_2p`
-  (défaut vrai en coop local, refusé en ligne).
-- Frontend web : `WebEmu::split_2p` + `split_2p_enable()` / `split_2p_enabled()`,
-  appliqué après `render_single_frame()` ; `frame_height()` / `logical_height()`
-  suivent le multiplicateur.
-- Page : `applySplit()` = split demandé **et** coop locale **et** pas de
-  session réseau ; classe `#room.split2p` (la vitre TV quitte le meuble 4:3 et
-  se fixe plein écran), `#touchpad2` peint en haut avec
-  `transform: rotate(180deg)`, inversion des coordonnées dans `dpadBits()` et
-  attribution des pointeurs par `pointerId`.
-- Orientation : `MainActivity` interroge `z2.ext.split.on()` toutes les 250 ms
-  et demande `SCREEN_ORIENTATION_PORTRAIT` quand le split est actif, sinon
-  `FULL_SENSOR` ; `configChanges` dans le manifeste évite de recréer la
-  WebView (donc de tuer le jeu) à la rotation.
-- Refus : `?split=0` dans l'URL, ou la case « Portrait split ».
+- Core: `crates/z2-ppu/src/split2p.rs` — `height_multiplier`, `out_len`,
+  `duplicate_rotated`, `duplicate_rotated_in_place`. The frame is presented
+  `W × 2H`, with the top copy rotated 180°.
+- Native frontend: `DisplaySettings::split_2p`, doubled memory in
+  `Display::present`, the `--split2p on|off` flag, the `split_2p` config key
+  (true by default in local co-op, refused online).
+- Web frontend: `WebEmu::split_2p` plus `split_2p_enable()` /
+  `split_2p_enabled()`, applied after `render_single_frame()`; `frame_height()`
+  and `logical_height()` follow the multiplier.
+- Page: `applySplit()` = split wanted **and** local co-op **and** no network
+  session; the `#room.split2p` class (the TV pane leaves the 4:3 cabinet and
+  fixes itself fullscreen), `#touchpad2` painted at the top with
+  `transform: rotate(180deg)`, coordinates inverted in `dpadBits()` and pointers
+  assigned by `pointerId`.
+- Orientation: `MainActivity` polls `z2.ext.split.on()` every 250 ms and asks for
+  `SCREEN_ORIENTATION_PORTRAIT` while the split is on, `FULL_SENSOR` otherwise;
+  `configChanges` in the manifest keeps the WebView from being recreated (and so
+  the game from being killed) on rotation.
+- Turning it off: `?split=0` in the URL, or the "Portrait split" checkbox.
 
-### Contrôles tactiles
+### Touch controls
 
-`makeTouchPad(root, { rotated, liftsAudio })` construit un pad par joueur ;
-les bits sont OU-exés dans `pollInput()` / `pollInputP2()`, donc le tactile
-pilote exactement ce que pilote le clavier, en coop comme en réseau.
+`makeTouchPad(root, { rotated, liftsAudio })` builds one pad per player; the bits
+are OR-ed into `pollInput()` / `pollInputP2()`, so touch drives exactly what the
+keyboard drives, in local co-op as well as online.
 
-`Pad ↑` / `Pad ↓` règlent une variable CSS `--pad-shift` (en `vh`, 0–30 par pas
-de 5) appliquée à `#touchpad` en `translateY(calc(-1 * var(--pad-shift)))` et à
-`#touchpad2` **avant** sa rotation
-(`rotate(180deg) translateY(calc(-1 * var(--pad-shift)))`, ce qui la fait
-descendre du même montant) ; la hauteur de `#touchSpacer` grandit d'autant.
-Mémorisé dans `localStorage['z2rs.padShift']`, exposé à la QA par
-`z2.ext.touch.padShift(vh)` et `z2.ext.touch.padShiftVh()`.
+`Pad ↑` / `Pad ↓` set a `--pad-shift` CSS variable (in `vh`, 0–30 in steps of 5),
+applied to `#touchpad` as `translateY(calc(-1 * var(--pad-shift)))` and to
+`#touchpad2` **before** its rotation
+(`rotate(180deg) translateY(calc(-1 * var(--pad-shift)))`, which moves it down by
+the same amount); `#touchSpacer` grows by the same amount. Stored in
+`localStorage['z2rs.padShift']` and exposed to QA as `z2.ext.touch.padShift(vh)`
+and `z2.ext.touch.padShiftVh()`.
 
-### Son (correctif important)
+### Sound (the fix that mattered)
 
-`Apu::set_sample_rate` recalculait la marque du resampler à partir du nombre
-total de cycles : au passage 44 100 → 48 000 Hz (ce que fait le premier toucher
-quand l'`AudioContext` du téléphone tourne à 48 kHz), la boucle d'émission
-rattrapait d'un coup le retard accumulé et émettait un échantillon avec
-l'accumulateur vide — `0.0 / 0.0` = `NaN`, `NaN` stocké dans l'état du filtre
-passe-haut, **silence numérique définitif** (`peak: 0` côté worklet). Le
-correctif re-base `samples_emitted` sur la nouvelle marque et garde la division
-par zéro. Test de régression :
-`title_music_survives_a_mid_game_rate_switch` (auto-sauté sans `Z2_ROM`).
+`Apu::set_sample_rate` recomputed the resampler's mark from the total cycle
+count: on the 44,100 → 48,000 Hz switch (what the first touch triggers when the
+phone's `AudioContext` runs at 48 kHz) the emit loop caught up the accumulated
+lag in one go and emitted a sample with an empty accumulator — `0.0 / 0.0` =
+`NaN`, `NaN` stored in the high-pass filter state, **permanent digital silence**
+(`peak: 0` on the worklet side). The fix rebases `samples_emitted` on the new
+mark and guards the division by zero. Regression test:
+`title_music_survives_a_mid_game_rate_switch` (skips itself without `Z2_ROM`).
 
-### Pack HD à l'écran, sans dossier accessible
+### HD pack on screen, with no reachable folder
 
-Un WebView ne sait pas faire `webkitdirectory` : son sélecteur rend des noms de
-fichiers nus, donc `sheet-01.png` ne peut jamais correspondre au
-`sheets/sheet-01.png` du manifeste (« cannot read … not among the provided
-files »). Sur l'origine de l'app, la page masque donc le sélecteur d'origine et
-affiche **Pack folder on this device…** : elle navigue vers `z2rs://hd-pack`,
-`MainActivity` ouvre `ACTION_OPEN_DOCUMENT_TREE` et monte l'arbre sous `/_hdp/`
-(descente par nom via `DocumentsContract`). La page attend `_hdp/pack.json`,
-lit les fichiers que le manifeste nomme, et charge le pack par le même chemin
-wasm que le bureau (`hd_pack_begin` / `hd_pack_add_file` / `hd_pack_commit`).
-Ailleurs (site hébergé, bureau) le sélecteur de dossier d'origine reste tel
-quel.
+A WebView cannot do `webkitdirectory`: its picker hands back bare file names, so
+`sheet-01.png` can never match the `sheets/sheet-01.png` the manifest asks for
+("cannot read … not among the provided files"). On the app's own origin the page
+therefore hides the original picker and shows **Pack folder on this device…**:
+it navigates to `z2rs://hd-pack`, `MainActivity` opens
+`ACTION_OPEN_DOCUMENT_TREE` and mounts the tree under `/_hdp/` (descending by
+name through `DocumentsContract`). The page waits for `_hdp/pack.json`, reads the
+files the manifest names, and loads the pack through the same wasm path as the
+desktop (`hd_pack_begin` / `hd_pack_add_file` / `hd_pack_commit`). Everywhere
+else (hosted site, desktop) the original folder picker is untouched.
 
-### Construire
+### Building
 
 ```sh
-# bundle web, HD compris : obligatoire pour que la carte « HD graphics pack »
-# soit active (--features hd)
+# web bundle, HD included: required for the "HD graphics pack" card to be live
+# (--features hd)
 RUSTUP_TOOLCHAIN=stable wasm-pack build crates/z2-web --target web --out-dir site/pkg --features hd
 
 cd android
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleDebug   # JDK, pas JRE
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleDebug   # a JDK, not a JRE
 ```
 
-`minSdk 24`, `targetSdk 35`, `applicationId org.z2rs.app`, aucune dépendance
-externe (ni AndroidX) : uniquement les API `android.*` et la WebView de la
-plateforme. L'APK sort dans `android/app/build/outputs/apk/debug/`.
+`minSdk 24`, `targetSdk 35`, `applicationId org.z2rs.app`, no external
+dependencies (not even AndroidX): only the `android.*` APIs and the platform
+WebView. The APK lands in `android/app/build/outputs/apk/debug/`.
 
-Pour republier : copier l'APK dans `dist/` (nom `z2rs-2p-splitscreen-<version>-debug.apk`),
-`.gitignore` autorise explicitement `dist/*.apk`.
+To republish: copy the APK into `dist/` as
+`z2rs-2p-splitscreen-<version>-debug.apk` (`.gitignore` explicitly allows
+`dist/*.apk`) and attach it to a release.
 
-Empreinte de l'APK publié :
+Hash of the published APK:
 
-```
+```text
 f5d9e5f749f2ba782e72d90ce5f8def9e7c2b6ecc2599d1bf8b271cdf104d4ed
-z2rs-2p-splitscreen-0.1.0-debug.apk  866 004 octets  (SHA-256)
+z2rs-2p-splitscreen-0.1.0-debug.apk  866004 bytes  (SHA-256)
 ```
 
-### Tests et état connu
+### Tests and known state
 
-- `cargo +stable test --workspace` : tout passe, sauf
+- `cargo +stable test --workspace`: everything passes except
   `perf_reports_speed_with_regression_floor` (`z2-verify/tests/oracle_tetanes.rs`),
-  un plancher de performance en **debug** (0,7× au lieu de 1× sur une machine
-  chargée) — sans rapport avec ce travail, `z2-verify` ne dépend pas de
-  `z2-apu`/`z2-web`, et ce test ne s'exécutait pas avant faute de `Z2_ROM`.
-- `cargo +stable fmt --all --check` : propre. `clippy` sur `z2-apu`/`z2-web` :
-  propre ; les six avertissements restants viennent de la lint
-  `chunks_exact_to_as_chunks` (clippy 1.98) dans des fichiers non touchés.
-- Le grant du dossier de pack est demandé persistant mais le montage est par
-  session : après relance, il faut rechoisir le dossier.
+  a **debug** performance floor (0.7x instead of 1x on a loaded machine). It is
+  unrelated to this work — `z2-verify` depends on neither `z2-apu` nor `z2-web`,
+  and that test did not even run before, for lack of `Z2_ROM`.
+- `cargo +stable fmt --all --check`: clean. `clippy` on `z2-apu` / `z2-web`:
+  clean; the six warnings that remain come from the `chunks_exact_to_as_chunks`
+  lint (clippy 1.98) in files this work did not touch.
+- The HD pack folder grant is requested as persistent, but the mount is per
+  session: after a restart the folder has to be picked again.
